@@ -1,5 +1,16 @@
 import { initializeBabylonApp } from "app_package";
 
+let assetsHostUrl;
+if (DEV_BUILD) {
+    assetsHostUrl = "http://127.0.0.1:8181/";
+} else {
+    assetsHostUrl = "https://nonlocal-assets-host-url/";
+}
+
+const ammoScript = document.createElement("script");
+ammoScript.src = `${assetsHostUrl}ammo/ammo.wasm.js`;
+document.body.appendChild(ammoScript);
+
 document.body.style.width = "100%";
 document.body.style.height = "100%";
 document.body.style.margin = "0";
@@ -24,10 +35,8 @@ canvas.style.height = "100%";
 canvas.style.display = "block";
 div.appendChild(canvas);
 
-let assetsHostUrl;
-if (DEV_BUILD) {
-    assetsHostUrl = "http://127.0.0.1:8181/";
-} else {
-    assetsHostUrl = "https://nonlocal-assets-host-url/";
-}
-initializeBabylonApp({ canvas: canvas, assetsHostUrl: assetsHostUrl });
+setTimeout(() => {
+    Ammo().then(() => {
+        initializeBabylonApp({ canvas: canvas, assetsHostUrl: assetsHostUrl });
+    });
+}, 1000);
