@@ -3,30 +3,53 @@ import "@babylonjs/loaders";
 import { EffectRenderer, Engine, MeshBuilder, Tools } from "@babylonjs/core";
 import { RenderTargetScene } from "./renderTargetScene";
 import { SceneRenderer } from "./sceneRenderer";
+import { Observable } from "@babylonjs/core/Misc/observable";
 
 class Level1Scene extends RenderTargetScene {
+    public requestTitleSceneObservable: Observable<void>;
+    public requestLevel1SceneObservable: Observable<void>;
+
     private constructor(engine: Engine) {
         super(engine);
+
+        this.requestTitleSceneObservable = new Observable<void>();
+        this.requestLevel1SceneObservable = new Observable<void>();
 
         MeshBuilder.CreateBox("box", { size: 1 }, this);
         this.createDefaultCameraOrLight(true, true, true);
     }
 
     public static async CreateAsync(engine: Engine): Promise<Level1Scene> {
-        return new Level1Scene(engine);
+        const scene = new Level1Scene(engine);
+
+        Tools.DelayAsync(2000).then(() => {
+            scene.requestTitleSceneObservable.notifyObservers();
+        });
+
+        return scene;
     }
 }
 
 class TitleScene extends RenderTargetScene {
+    public requestLevel1SceneObservable: Observable<void>;
+
     private constructor(engine: Engine) {
         super(engine);
+
+        this.requestLevel1SceneObservable = new Observable<void>();
 
         MeshBuilder.CreateSphere("sphere", { diameter: 1 }, this);
         this.createDefaultCameraOrLight(true, true, true);
     }
 
     public static async CreateAsync(engine: Engine): Promise<TitleScene> {
-        return new TitleScene(engine);
+        const scene = new TitleScene(engine);
+
+        Tools.DelayAsync(2000).then(() => {
+            scene.requestLevel1SceneObservable.notifyObservers();
+        });
+
+        return scene;
     }
 }
 
@@ -43,15 +66,19 @@ class Game {
 
     public static async CreateAsync(canvas: HTMLCanvasElement): Promise<Game> {
         const game = new Game(canvas);
-
-        while (true) {
-            await game._sceneRenderer.loadSceneAsync(TitleScene.CreateAsync);
-            await Tools.DelayAsync(1000);
-            await game._sceneRenderer.loadSceneAsync(Level1Scene.CreateAsync);
-            await Tools.DelayAsync(1000);
-        }
-
+        await game._loadTitleSceneAsync();
         return game;
+    }
+
+    private async _loadTitleSceneAsync(): Promise<void> {
+        const titleScene = await this._sceneRenderer.loadSceneAsync(TitleScene.CreateAsync);
+        titleScene.requestLevel1SceneObservable.add(() => { this._loadLevel1SceneAsync() });
+    }
+
+    private async _loadLevel1SceneAsync(): Promise<void> {
+        const level1Scene = await this._sceneRenderer.loadSceneAsync(Level1Scene.CreateAsync);
+        level1Scene.requestTitleSceneObservable.add(() => { this._loadTitleSceneAsync() });
+        level1Scene.requestLevel1SceneObservable.add(() => { this._loadLevel1SceneAsync() });
     }
 }
 
