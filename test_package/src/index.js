@@ -1,4 +1,4 @@
-import { initializeBabylonApp } from "app_package";
+import { runGame } from "app_package";
 
 let assetsHostUrl;
 if (DEV_BUILD) {
@@ -37,6 +37,6 @@ div.appendChild(canvas);
 
 setTimeout(() => {
     Ammo().then(() => {
-        initializeBabylonApp({ canvas: canvas, assetsHostUrl: assetsHostUrl });
+        runGame({ canvas: canvas, assetsHostUrl: assetsHostUrl });
     });
 }, 1000);
