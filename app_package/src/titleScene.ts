@@ -1,6 +1,7 @@
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
+import { CubeTexture } from "@babylonjs/core/Materials/Textures/cubeTexture";
 import { Quaternion, Vector3 } from "@babylonjs/core/Maths/math.vector";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { Observable } from "@babylonjs/core/Misc/observable";
@@ -19,14 +20,22 @@ export class TitleScene extends RenderTargetScene {
     }
 
     public static async CreateAsync(engine: Engine): Promise<TitleScene> {
+        const params = {
+            assetUrlRoot: "http://127.0.0.1:8181/",
+            assetUrlLevel1: "level1.glb",
+            assetUrlEnvironmentTexture: "environment.env"
+        };
+
         const scene = new TitleScene(engine);
         const physicsPlugin = new AmmoJSPlugin();
         scene.enablePhysics(undefined, physicsPlugin);
 
-        const loadResult = await SceneLoader.ImportMeshAsync("", "http://127.0.0.1:8181/", "level1.glb", scene);
+        const loadResult = await SceneLoader.ImportMeshAsync("", params.assetUrlRoot, params.assetUrlLevel1, scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
 
-        scene.createDefaultEnvironment({ createSkybox: false, createGround: false });
+        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetUrlRoot + params.assetUrlEnvironmentTexture, scene);
+        scene.environmentTexture = environmentTexture;
+        scene.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
 
         const cameraParent = new TransformNode("cameraParent", scene);
         cameraParent.rotationQuaternion = new Quaternion();
