@@ -30,7 +30,7 @@ function erf(x: number, stddev: number = 1, mean: number = 0): number {
 
 export class BlurEffect {
     private static KERNEL_SIZE = 15;
-    private static KERNEL_RADIUS = 0.02;
+    private static KERNEL_RADIUS = 0.01;
 
     private _engine: ThinEngine;
     private _effectRenderer: EffectRenderer;
