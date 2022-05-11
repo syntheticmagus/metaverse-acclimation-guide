@@ -1,4 +1,4 @@
-import { CubeTexture, PassPostProcess } from "@babylonjs/core";
+import { AbstractMesh, CubeTexture, Matrix, Ray, Vector3 } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
@@ -12,12 +12,78 @@ import { FirstPersonPlayer } from "@syntheticmagus/first-person-player/lib/first
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
 import { RenderTargetScene } from "./renderTargetScene";
 
+class TriggerVolume {
+    public onTriggerEntered: Observable<TriggerVolume>;
+    public onTriggerExited: Observable<TriggerVolume>;
+
+    protected constructor() {
+        this.onTriggerEntered = new Observable<TriggerVolume>();
+        this.onTriggerExited = new Observable<TriggerVolume>();
+    }
+}
+
+class UnitCubeTriggerVolume extends TriggerVolume {
+    private _mesh: AbstractMesh;
+    private _triggered: boolean;
+
+    private _transform: Matrix;
+    private _vector: Vector3;
+
+    public constructor(unitCubeTriggerMesh: AbstractMesh) {
+        super();
+
+        this._mesh = unitCubeTriggerMesh;
+        this._mesh.isVisible = false;
+        this._triggered = false;
+
+        this._transform = new Matrix();
+        this._vector = new Vector3();
+    }
+
+    public triggerOnVector(positionWorld?: Vector3): void {
+        if (!positionWorld) {
+            if (this._triggered) {
+                this.onTriggerExited.notifyObservers(this);
+                this._triggered = false;
+            }
+
+            return;
+        }
+
+        this._mesh.getWorldMatrix().invertToRef(this._transform);
+        Vector3.TransformCoordinatesToRef(positionWorld, this._transform, this._vector);
+        const triggered = Math.abs(this._vector.x) < 1 && Math.abs(this._vector.y) < 1 && Math.abs(this._vector.z) < 1;
+
+        if (triggered && !this._triggered) {
+            this.onTriggerEntered.notifyObservers(this);
+        } else if (!triggered && this._triggered) {
+            this.onTriggerExited.notifyObservers(this);
+        }
+
+        this._triggered = triggered;
+    }
+}
+
+enum DoorState{
+    Closed,
+    Animating,
+    Open
+}
+
 export class Level1Scene extends RenderTargetScene {
     public requestTitleSceneObservable: Observable<void>;
     public requestLevel1SceneObservable: Observable<void>;
 
     private _paused: boolean;
     private _updateObservable: Observable<Scene>;
+
+    private _interactKeyBinding: string;
+
+    private _triggerUnitCubes: Array<UnitCubeTriggerVolume>;
+    private _activeTriggerName?: string;
+
+    private _doorState: DoorState;
+    private _elevatorState: DoorState;
 
     private constructor(engine: Engine) {
         super(engine);
@@ -27,11 +93,102 @@ export class Level1Scene extends RenderTargetScene {
 
         this._paused = false;
         this._updateObservable = new Observable<Scene>();
+
+        const ray = new Ray(Vector3.ZeroReadOnly, Vector3.ZeroReadOnly);
+        const raycastOrigin = new Vector3();
+        const raycastDestination = new Vector3();
+
         this.onBeforeRenderObservable.add(() => {
-            if (!this._paused) {
-                this._updateObservable.notifyObservers(this);
+            if (this._paused) {
+                return;
+            }
+
+            if (this._activeCamera && this._physicsEngine) {
+                raycastOrigin.copyFrom(this._activeCamera.globalPosition);
+                this.activeCamera?.getForwardRayToRef(ray);
+                raycastDestination.copyFrom(ray.direction);
+                raycastDestination.scaleInPlace(1);
+                raycastDestination.addInPlace(raycastOrigin);
+
+                const result = this._physicsEngine.raycast(raycastOrigin, raycastDestination);
+
+                this._triggerUnitCubes.forEach((trigger) => {
+                    trigger.triggerOnVector(result.hasHit ? result.hitPointWorld : undefined);
+                });
+            }
+
+            this._updateObservable.notifyObservers(this);
+        });
+
+        this._interactKeyBinding = "e";
+        this.onKeyboardObservable.add((eventData) => {
+            if (eventData.type === 2 && eventData.event.key === this._interactKeyBinding && this._activeTriggerName) {
+                if (this._activeTriggerName === "door") {
+                    if (this._doorState === DoorState.Closed) {
+                        this.onBeforeRenderObservable.runCoroutineAsync(this._openDoorCoroutine());
+                    } else if (this._doorState === DoorState.Open) {
+                        this.onBeforeRenderObservable.runCoroutineAsync(this._closeDoorCoroutine());
+                    }
+                } else if (this._activeTriggerName === "button") {
+                    if (this._elevatorState === DoorState.Closed) {
+                        this.onBeforeRenderObservable.runCoroutineAsync(this._openElevatorCoroutine());
+                    } else if (this._elevatorState === DoorState.Open) {
+                        this.onBeforeRenderObservable.runCoroutineAsync(this._closeElevatorCoroutine());
+                    }
+                }
             }
         });
+
+        this._triggerUnitCubes = [];
+
+        this._doorState = DoorState.Closed;
+        this._elevatorState = DoorState.Closed;
+    }
+
+    private *_openDoorCoroutine() {
+        this._doorState = DoorState.Animating;
+        const door = this.getTransformNodeByName("physics_compound_door")!;
+        door.reIntegrateRotationIntoRotationQuaternion = true;
+        for (let t = 0; t < 100; ++t) {
+            door.rotation.y = 0.01 * 1.1 * -Math.PI / 2;
+            yield;
+        }
+        this._doorState = DoorState.Open;
+    }
+
+    private *_closeDoorCoroutine() {
+        this._doorState = DoorState.Animating;
+        const door = this.getTransformNodeByName("physics_compound_door")!;
+        door.reIntegrateRotationIntoRotationQuaternion = true;
+        for (let t = 0; t < 100; ++t) {
+            door.rotation.y = 0.01 * 1.1 * Math.PI / 2;
+            yield;
+        }
+        this._doorState = DoorState.Closed;
+    }
+
+    private *_openElevatorCoroutine() {
+        this._elevatorState = DoorState.Animating;
+        const leftDoor = this.getMeshByName("physics_box_elevator_door_left")!;
+        const rightDoor = this.getMeshByName("physics_box_elevator_door_right")!;
+        for (let t = 0; t < 100; ++t) {
+            leftDoor.position.z -= 0.008;
+            rightDoor.position.z += 0.008;
+            yield;
+        }
+        this._elevatorState = DoorState.Open;
+    }
+
+    private *_closeElevatorCoroutine() {
+        this._elevatorState = DoorState.Animating;
+        const leftDoor = this.getMeshByName("physics_box_elevator_door_left")!;
+        const rightDoor = this.getMeshByName("physics_box_elevator_door_right")!;
+        for (let t = 0; t < 100; ++t) {
+            leftDoor.position.z += 0.008;
+            rightDoor.position.z -= 0.008;
+            yield;
+        }
+        this._elevatorState = DoorState.Closed;
     }
 
     public static async CreateAsync(engine: Engine): Promise<Level1Scene> {
@@ -47,6 +204,21 @@ export class Level1Scene extends RenderTargetScene {
 
         const loadResult = await SceneLoader.ImportMeshAsync("", "http://127.0.0.1:8181/", "level1.glb", scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
+
+        const triggerNames = ["door", "button"];
+        triggerNames.forEach((name) => {
+            const mesh = scene.getMeshByName(`trigger_unit_cube_${name}`)!;
+            const trigger = new UnitCubeTriggerVolume(mesh);
+            trigger.onTriggerEntered.add(() => {
+                scene._activeTriggerName = name;
+            });
+            trigger.onTriggerExited.add(() => {
+                if (scene._activeTriggerName! === name) {
+                    scene._activeTriggerName = undefined;
+                }
+            });
+            scene._triggerUnitCubes.push(trigger);
+        });
 
         const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetUrlRoot + params.assetUrlEnvironmentTexture, scene);
         scene.environmentTexture = environmentTexture;
@@ -86,17 +258,17 @@ export class Level1Scene extends RenderTargetScene {
             }
         }); */
 
-        const titleGui = AdvancedDynamicTexture.CreateFullscreenUI("pauseGui");
-        await titleGui.parseFromURLAsync("http://localhost:8181/pause_gui.json");
+        const pauseGui = AdvancedDynamicTexture.CreateFullscreenUI("pauseGui");
+        await pauseGui.parseFromURLAsync("http://localhost:8181/pause_gui.json");
         
-        const pauseMenu = titleGui.getControlByName("pauseMenu")!;
-        const mainButtonsStackPanel = titleGui.getControlByName("mainButtonsStackPanel")!;
-        const settingsButtonsStackPanel = titleGui.getControlByName("settingsButtonsStackPanel")!;
-        const keyBindingsGrid = titleGui.getControlByName("keyBindingsGrid")!;
+        const pauseMenu = pauseGui.getControlByName("pauseMenu")!;
+        const mainButtonsStackPanel = pauseGui.getControlByName("mainButtonsStackPanel")!;
+        const settingsButtonsStackPanel = pauseGui.getControlByName("settingsButtonsStackPanel")!;
+        const keyBindingsGrid = pauseGui.getControlByName("keyBindingsGrid")!;
         
-        const walkInputText = titleGui.getControlByName("walkInputText")! as InputText;
-        const interactInputText = titleGui.getControlByName("interactInputText")! as InputText;
-        const jumpInputText = titleGui.getControlByName("jumpInputText")! as InputText;
+        const walkInputText = pauseGui.getControlByName("walkInputText")! as InputText;
+        const interactInputText = pauseGui.getControlByName("interactInputText")! as InputText;
+        const jumpInputText = pauseGui.getControlByName("jumpInputText")! as InputText;
         // TODO: Retrieve bindings from local storage, if available.
         let walkKeyBinding = walkInputText.text;
         let interactKeyBinding = interactInputText.text;
@@ -105,7 +277,8 @@ export class Level1Scene extends RenderTargetScene {
         const setKeyBindings = () => {
             let binding = walkKeyBinding.toLocaleLowerCase();
             player.setKeyBinding(InputSamplerAxis.Forward, binding === "space" ? " " : binding);
-            // TODO: Set the interact key binding.
+            binding = interactKeyBinding.toLocaleLowerCase();
+            scene._interactKeyBinding = binding === "space" ? " " : binding;
             binding = jumpKeyBinding.toLowerCase();
             player.setKeyBinding(InputSamplerAxis.Jump, binding === "space" ? " " : binding);
         };
@@ -120,7 +293,7 @@ export class Level1Scene extends RenderTargetScene {
         keyBindingsGrid.isEnabled = false;
 
         const setButtonClickHandler = (buttonName: string, handler: () => void) => {
-            const button = titleGui.getControlByName(buttonName) as Button;
+            const button = pauseGui.getControlByName(buttonName) as Button;
             button.onPointerClickObservable.add(handler);
         }
 
