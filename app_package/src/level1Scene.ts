@@ -1,12 +1,13 @@
-import { Color3, CubeTexture, MeshBuilder, PBRMaterial } from "@babylonjs/core";
+import { CubeTexture, PassPostProcess } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
-import { SSAO2RenderingPipeline } from "@babylonjs/core/PostProcesses/RenderPipeline/Pipelines/ssao2RenderingPipeline";
-import { ScreenSpaceReflectionPostProcess } from "@babylonjs/core/PostProcesses/screenSpaceReflectionPostProcess";
+import { Scene } from "@babylonjs/core/scene";
+import { InputText } from "@babylonjs/gui";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
+import { InputSamplerAxis } from "@syntheticmagus/first-person-player/lib";
 import { FirstPersonPlayer } from "@syntheticmagus/first-person-player/lib/firstPersonPlayer";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
 import { RenderTargetScene } from "./renderTargetScene";
@@ -15,11 +16,22 @@ export class Level1Scene extends RenderTargetScene {
     public requestTitleSceneObservable: Observable<void>;
     public requestLevel1SceneObservable: Observable<void>;
 
+    private _paused: boolean;
+    private _updateObservable: Observable<Scene>;
+
     private constructor(engine: Engine) {
         super(engine);
 
         this.requestTitleSceneObservable = new Observable<void>();
         this.requestLevel1SceneObservable = new Observable<void>();
+
+        this._paused = false;
+        this._updateObservable = new Observable<Scene>();
+        this.onBeforeRenderObservable.add(() => {
+            if (!this._paused) {
+                this._updateObservable.notifyObservers(this);
+            }
+        });
     }
 
     public static async CreateAsync(engine: Engine): Promise<Level1Scene> {
@@ -40,20 +52,16 @@ export class Level1Scene extends RenderTargetScene {
         scene.environmentTexture = environmentTexture;
         scene.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
 
-        const playerSpawn = scene.getTransformNodeByName("player_spawn");
-        if (playerSpawn) {
-            const player = new FirstPersonPlayer(scene, playerSpawn.absolutePosition);
-            player.camera.maxZ = 10000;
+        const playerSpawn = scene.getTransformNodeByName("player_spawn")!;
+        const player = new FirstPersonPlayer(scene, playerSpawn.absolutePosition, scene._updateObservable);
+        player.camera.maxZ = 1000;
 
-            player.camera.rotation.x += 4 * Math.PI / 9;
-            player.camera.rotation.y += Math.PI / 2;
+        player.camera.rotation.x += 4 * Math.PI / 9;
+        player.camera.rotation.y += Math.PI / 2;
 
-            scene.onPointerDown = () => {
-                engine.getRenderingCanvas()!.requestPointerLock();
-            };
-        } else {
-            scene.createDefaultCamera(true, true, true);
-        }
+        scene.onPointerDown = () => {
+            engine.getRenderingCanvas()!.requestPointerLock();
+        };
 
         /* var ssao = new SSAO2RenderingPipeline("ssao", scene, {
             ssaoRatio: 0.5, // Ratio of the SSAO post-process, in a lower resolution
@@ -85,6 +93,22 @@ export class Level1Scene extends RenderTargetScene {
         const mainButtonsStackPanel = titleGui.getControlByName("mainButtonsStackPanel")!;
         const settingsButtonsStackPanel = titleGui.getControlByName("settingsButtonsStackPanel")!;
         const keyBindingsGrid = titleGui.getControlByName("keyBindingsGrid")!;
+        
+        const walkInputText = titleGui.getControlByName("walkInputText")! as InputText;
+        const interactInputText = titleGui.getControlByName("interactInputText")! as InputText;
+        const jumpInputText = titleGui.getControlByName("jumpInputText")! as InputText;
+        // TODO: Retrieve bindings from local storage, if available.
+        let walkKeyBinding = walkInputText.text;
+        let interactKeyBinding = interactInputText.text;
+        let jumpKeyBinding = jumpInputText.text;
+
+        const setKeyBindings = () => {
+            let binding = walkKeyBinding.toLocaleLowerCase();
+            player.setKeyBinding(InputSamplerAxis.Forward, binding === "space" ? " " : binding);
+            // TODO: Set the interact key binding.
+            binding = jumpKeyBinding.toLowerCase();
+            player.setKeyBinding(InputSamplerAxis.Jump, binding === "space" ? " " : binding);
+        };
 
         pauseMenu.isVisible = false;
         pauseMenu.isEnabled = false;
@@ -101,7 +125,8 @@ export class Level1Scene extends RenderTargetScene {
         }
 
         setButtonClickHandler("resumeButton", () => {
-            // TODO: Unpause
+            scene._paused = false;
+            // TODO: Resume the physics simulation.
             pauseMenu.isVisible = false;
             pauseMenu.isEnabled = false;
             mainButtonsStackPanel.isVisible = false;
@@ -121,6 +146,10 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("settingsKeyBindingsButton", () => {
+            walkInputText.text = walkKeyBinding;
+            interactInputText.text = interactKeyBinding;
+            jumpInputText.text = jumpKeyBinding;
+
             settingsButtonsStackPanel.isVisible = false;
             settingsButtonsStackPanel.isEnabled = false;
             keyBindingsGrid.isVisible = true;
@@ -135,7 +164,12 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("keyBindingsApplyButton", () => {
-            // TODO: Apply the changed settings.
+            walkKeyBinding = walkInputText.text;
+            interactKeyBinding = interactInputText.text;
+            jumpKeyBinding = jumpInputText.text;
+
+            setKeyBindings();
+
             keyBindingsGrid.isVisible = false;
             keyBindingsGrid.isEnabled = false;
             settingsButtonsStackPanel.isVisible = true;
@@ -149,9 +183,10 @@ export class Level1Scene extends RenderTargetScene {
             settingsButtonsStackPanel.isEnabled = true;
         });
 
-        document.addEventListener("pointerlockchange", (event) => {
+        document.addEventListener("pointerlockchange", () => {
             if (document.pointerLockElement !== engine.getRenderingCanvas()) {
-                // TODO: Pause
+                scene._paused = true;
+                // TODO: Pause the physics simulation.
                 pauseMenu.isVisible = true;
                 mainButtonsStackPanel.isVisible = true;
                 pauseMenu.isEnabled = true;

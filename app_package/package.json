@@ -19,7 +19,7 @@
     "@babylonjs/gui": "^5.0.0",
     "@babylonjs/inspector": "^5.0.0",
     "@babylonjs/loaders": "^5.0.0",
-    "@syntheticmagus/first-person-player": "^0.0.3",
+    "@syntheticmagus/first-person-player": "^0.0.4",
     "@syntheticmagus/physics-post-loader": "^0.0.1"
   }
 }
