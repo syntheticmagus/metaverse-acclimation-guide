@@ -1,3 +1,4 @@
+import { Tools } from "@babylonjs/core";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
@@ -49,7 +50,7 @@ export class TitleScene extends RenderTargetScene {
             }
         }());
 
-        const camera = new TargetCamera("camera", Vector3.ZeroReadOnly, scene);
+        const camera = new TargetCamera("camera", new Vector3(), scene);
         camera.parent = cameraParent;
         camera.minZ = 0.1;
         camera.maxZ = 1000;

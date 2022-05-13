@@ -4,7 +4,7 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { Scene } from "@babylonjs/core/scene";
-import { InputText } from "@babylonjs/gui";
+import { InputText, Rectangle, TextBlock } from "@babylonjs/gui";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
 import { InputSamplerAxis } from "@syntheticmagus/first-person-player/lib";
@@ -94,7 +94,7 @@ export class Level1Scene extends RenderTargetScene {
         this._paused = false;
         this._updateObservable = new Observable<Scene>();
 
-        const ray = new Ray(Vector3.ZeroReadOnly, Vector3.ZeroReadOnly);
+        const ray = new Ray(new Vector3(), new Vector3());
         const raycastOrigin = new Vector3();
         const raycastDestination = new Vector3();
 
@@ -125,15 +125,15 @@ export class Level1Scene extends RenderTargetScene {
             if (eventData.type === 2 && eventData.event.key === this._interactKeyBinding && this._activeTriggerName) {
                 if (this._activeTriggerName === "door") {
                     if (this._doorState === DoorState.Closed) {
-                        this.onBeforeRenderObservable.runCoroutineAsync(this._openDoorCoroutine());
+                        this._updateObservable.runCoroutineAsync(this._openDoorCoroutine());
                     } else if (this._doorState === DoorState.Open) {
-                        this.onBeforeRenderObservable.runCoroutineAsync(this._closeDoorCoroutine());
+                        this._updateObservable.runCoroutineAsync(this._closeDoorCoroutine());
                     }
                 } else if (this._activeTriggerName === "button") {
                     if (this._elevatorState === DoorState.Closed) {
-                        this.onBeforeRenderObservable.runCoroutineAsync(this._openElevatorCoroutine());
+                        this._updateObservable.runCoroutineAsync(this._openElevatorCoroutine());
                     } else if (this._elevatorState === DoorState.Open) {
-                        this.onBeforeRenderObservable.runCoroutineAsync(this._closeElevatorCoroutine());
+                        this._updateObservable.runCoroutineAsync(this._closeElevatorCoroutine());
                     }
                 }
             }
@@ -205,6 +205,10 @@ export class Level1Scene extends RenderTargetScene {
         const loadResult = await SceneLoader.ImportMeshAsync("", "http://127.0.0.1:8181/", "level1.glb", scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
 
+        loadResult.meshes.forEach((mesh) => {
+            mesh.isPickable = false;
+        });
+
         const triggerNames = ["door", "button"];
         triggerNames.forEach((name) => {
             const mesh = scene.getMeshByName(`trigger_unit_cube_${name}`)!;
@@ -258,21 +262,36 @@ export class Level1Scene extends RenderTargetScene {
             }
         }); */
 
-        const pauseGui = AdvancedDynamicTexture.CreateFullscreenUI("pauseGui");
-        await pauseGui.parseFromURLAsync("http://localhost:8181/pause_gui.json");
+        const gameGui = AdvancedDynamicTexture.CreateFullscreenUI("pauseGui");
+        await gameGui.parseFromURLAsync("http://localhost:8181/game_gui.json");
         
-        const pauseMenu = pauseGui.getControlByName("pauseMenu")!;
-        const mainButtonsStackPanel = pauseGui.getControlByName("mainButtonsStackPanel")!;
-        const settingsButtonsStackPanel = pauseGui.getControlByName("settingsButtonsStackPanel")!;
-        const keyBindingsGrid = pauseGui.getControlByName("keyBindingsGrid")!;
+        const pauseMenu = gameGui.getControlByName("pauseMenu")!;
+        const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
+        const settingsButtonsStackPanel = gameGui.getControlByName("settingsButtonsStackPanel")!;
+        const keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
+
+        const gameplayUI = gameGui.getControlByName("gameplayUI")!;
+        gameplayUI.isEnabled = false;
         
-        const walkInputText = pauseGui.getControlByName("walkInputText")! as InputText;
-        const interactInputText = pauseGui.getControlByName("interactInputText")! as InputText;
-        const jumpInputText = pauseGui.getControlByName("jumpInputText")! as InputText;
+        const walkInputText = gameGui.getControlByName("walkInputText")! as InputText;
+        const interactInputText = gameGui.getControlByName("interactInputText")! as InputText;
+        const jumpInputText = gameGui.getControlByName("jumpInputText")! as InputText;
         // TODO: Retrieve bindings from local storage, if available.
         let walkKeyBinding = walkInputText.text;
         let interactKeyBinding = interactInputText.text;
         let jumpKeyBinding = jumpInputText.text;
+
+        const interactPromptRectangle = gameGui.getControlByName("interactPromptRectangle")!;
+        const interactTextBlock = gameGui.getControlByName("interactTextBlock")! as TextBlock;
+        interactPromptRectangle.alpha = 0;
+        scene._updateObservable.add(() => {
+            interactPromptRectangle.alpha *= 0.8;
+            interactPromptRectangle.alpha += (0.2 * (scene._activeTriggerName ? 1 : 0));
+        });
+
+        const achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
+        const achievementText = gameGui.getControlByName("achievementText")! as TextBlock;
+        achievementRectangle.topInPixels = 300;
 
         const setKeyBindings = () => {
             let binding = walkKeyBinding.toLocaleLowerCase();
@@ -281,7 +300,10 @@ export class Level1Scene extends RenderTargetScene {
             scene._interactKeyBinding = binding === "space" ? " " : binding;
             binding = jumpKeyBinding.toLowerCase();
             player.setKeyBinding(InputSamplerAxis.Jump, binding === "space" ? " " : binding);
+
+            interactTextBlock.text = interactKeyBinding;
         };
+        setKeyBindings();
 
         pauseMenu.isVisible = false;
         pauseMenu.isEnabled = false;
@@ -293,12 +315,13 @@ export class Level1Scene extends RenderTargetScene {
         keyBindingsGrid.isEnabled = false;
 
         const setButtonClickHandler = (buttonName: string, handler: () => void) => {
-            const button = pauseGui.getControlByName(buttonName) as Button;
+            const button = gameGui.getControlByName(buttonName) as Button;
             button.onPointerClickObservable.add(handler);
         }
 
         setButtonClickHandler("resumeButton", () => {
             scene._paused = false;
+            scene.physicsEnabled = true;
             // TODO: Resume the physics simulation.
             pauseMenu.isVisible = false;
             pauseMenu.isEnabled = false;
@@ -359,6 +382,7 @@ export class Level1Scene extends RenderTargetScene {
         document.addEventListener("pointerlockchange", () => {
             if (document.pointerLockElement !== engine.getRenderingCanvas()) {
                 scene._paused = true;
+                scene.physicsEnabled = false;
                 // TODO: Pause the physics simulation.
                 pauseMenu.isVisible = true;
                 mainButtonsStackPanel.isVisible = true;

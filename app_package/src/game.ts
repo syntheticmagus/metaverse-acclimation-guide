@@ -17,12 +17,12 @@ export class Game {
 
     public static async CreateAsync(canvas: HTMLCanvasElement): Promise<Game> {
         const game = new Game(canvas);
-        await game._loadTitleSceneAsync();
+        await game._loadTitleSceneAsync(0);
         return game;
     }
 
-    private async _loadTitleSceneAsync(): Promise<void> {
-        const titleScene = await this._sceneRenderer.loadSceneAsync(TitleScene.CreateAsync);
+    private async _loadTitleSceneAsync(delay: number = 1000): Promise<void> {
+        const titleScene = await this._sceneRenderer.loadSceneAsync(TitleScene.CreateAsync, delay);
         titleScene.requestLevel1SceneObservable.add(() => { this._loadLevel1SceneAsync(); });
     }
 
