@@ -1,4 +1,4 @@
-import { AbstractMesh, CubeTexture, Matrix, Ray, Sound, Vector3 } from "@babylonjs/core";
+import { AbstractMesh, CubeTexture, Matrix, Ray, Sound, Tools, Vector3 } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
@@ -207,6 +207,10 @@ export class Level1Scene extends RenderTargetScene {
     private _doorState: DoorState;
     private _elevatorState: DoorState;
 
+    private _player?: FirstPersonPlayer;
+
+    private _voiceOver?: VoiceOver;
+
     private constructor(engine: Engine) {
         super(engine);
 
@@ -313,6 +317,218 @@ export class Level1Scene extends RenderTargetScene {
         this._elevatorState = DoorState.Closed;
     }
 
+    private _loadHdrLighting(params: IGameParams) {
+        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, this);
+        this.environmentTexture = environmentTexture;
+        this.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
+    }
+
+    private _spawnPlayer() {
+        const playerSpawn = this.getTransformNodeByName("player_spawn")!;
+        this._player = new FirstPersonPlayer(this, playerSpawn.absolutePosition, this._updateObservable);
+        this._player.camera.maxZ = 1000;
+
+        this._player.camera.rotation.x += 4 * Math.PI / 9;
+        this._player.camera.rotation.y += Math.PI / 2;
+    }
+
+    private async _initializeGameGuiAsync() {
+        const gameGui = AdvancedDynamicTexture.CreateFullscreenUI("gameGui");
+        await gameGui.parseFromURLAsync("http://localhost:8181/game_gui.json");
+        
+        const pauseMenu = gameGui.getControlByName("pauseMenu")!;
+        const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
+        const settingsButtonsStackPanel = gameGui.getControlByName("settingsButtonsStackPanel")!;
+        const keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
+
+        const gameplayUI = gameGui.getControlByName("gameplayUI")!;
+        gameplayUI.isEnabled = false;
+        
+        const keyBindingsWalkButton = gameGui.getControlByName("keyBindingsWalkButton")! as Button;
+        const keyBindingsInteractButton = gameGui.getControlByName("keyBindingsInteractButton")! as Button;
+        const keyBindingsJumpButton = gameGui.getControlByName("keyBindingsJumpButton")! as Button;
+        // TODO: Retrieve bindings from local storage, if available.
+        let walkKeyBinding = keyBindingsWalkButton.textBlock!.text;
+        let interactKeyBinding = keyBindingsInteractButton.textBlock!.text;
+        let jumpKeyBinding = keyBindingsJumpButton.textBlock!.text;
+
+        const keyBindingPromptModal = gameGui.getControlByName("keyBindingPromptModal")!;
+
+        const interactPromptRectangle = gameGui.getControlByName("interactPromptRectangle")!;
+        const interactTextBlock = gameGui.getControlByName("interactTextBlock")! as TextBlock;
+        interactPromptRectangle.alpha = 0;
+        this._updateObservable.add(() => {
+            interactPromptRectangle.alpha *= 0.8;
+            interactPromptRectangle.alpha += (0.2 * (this._activeTriggerName ? 1 : 0));
+        });
+
+        const achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
+        const achievementText = gameGui.getControlByName("achievementText")! as TextBlock;
+        achievementRectangle.topInPixels = 300;
+
+        const setKeyBindings = () => {
+            let binding = walkKeyBinding.toLocaleLowerCase();
+            this._player?.setKeyBinding(InputSamplerAxis.Forward, binding === "space" ? " " : binding);
+            binding = interactKeyBinding.toLocaleLowerCase();
+            this._interactKeyBinding = binding === "space" ? " " : binding;
+            binding = jumpKeyBinding.toLowerCase();
+            this._player?.setKeyBinding(InputSamplerAxis.Jump, binding === "space" ? " " : binding);
+
+            interactTextBlock.text = interactKeyBinding;
+        };
+        setKeyBindings();
+
+        pauseMenu.isVisible = false;
+        pauseMenu.isEnabled = false;
+        mainButtonsStackPanel.isVisible = false;
+        mainButtonsStackPanel.isEnabled = false;
+        settingsButtonsStackPanel.isVisible = false;
+        settingsButtonsStackPanel.isEnabled = false;
+        keyBindingsGrid.isVisible = false;
+        keyBindingsGrid.isEnabled = false;
+
+        const setButtonClickHandler = (buttonName: string, handler: () => void) => {
+            const button = gameGui.getControlByName(buttonName) as Button;
+            button.onPointerClickObservable.add(handler);
+        }
+
+        setButtonClickHandler("resumeButton", () => {
+            this._paused = false;
+            this.physicsEnabled = true;
+            
+            pauseMenu.isVisible = false;
+            pauseMenu.isEnabled = false;
+            mainButtonsStackPanel.isVisible = false;
+            mainButtonsStackPanel.isEnabled = false;
+            this.getEngine().getRenderingCanvas()!.requestPointerLock();
+        });
+
+        setButtonClickHandler("settingsButton", () => {
+            mainButtonsStackPanel.isVisible = false;
+            mainButtonsStackPanel.isEnabled = false;
+            settingsButtonsStackPanel.isVisible = true;
+            settingsButtonsStackPanel.isEnabled = true;
+        });
+
+        setButtonClickHandler("exitButton", () => {
+            this.requestTitleSceneObservable.notifyObservers();
+        });
+
+        setButtonClickHandler("settingsKeyBindingsButton", () => {
+            keyBindingsWalkButton.textBlock!.text = walkKeyBinding;
+            keyBindingsInteractButton.textBlock!.text = interactKeyBinding;
+            keyBindingsJumpButton.textBlock!.text = jumpKeyBinding;
+
+            settingsButtonsStackPanel.isVisible = false;
+            settingsButtonsStackPanel.isEnabled = false;
+            keyBindingsGrid.isVisible = true;
+            keyBindingsGrid.isEnabled = true;
+        });
+
+        setButtonClickHandler("settingsBackButton", () => {
+            mainButtonsStackPanel.isVisible = true;
+            mainButtonsStackPanel.isEnabled = true;
+            settingsButtonsStackPanel.isVisible = false;
+            settingsButtonsStackPanel.isEnabled = false;
+        });
+
+        setButtonClickHandler("keyBindingsApplyButton", () => {
+            walkKeyBinding = keyBindingsWalkButton.textBlock!.text;
+            interactKeyBinding = keyBindingsInteractButton.textBlock!.text;
+            jumpKeyBinding = keyBindingsJumpButton.textBlock!.text;
+
+            setKeyBindings();
+
+            keyBindingsGrid.isVisible = false;
+            keyBindingsGrid.isEnabled = false;
+            settingsButtonsStackPanel.isVisible = true;
+            settingsButtonsStackPanel.isEnabled = true;
+        });
+
+        keyBindingsWalkButton.onPointerClickObservable.add(() => {
+            keyBindingPromptModal.isVisible = true;
+            keyBindingPromptModal.isEnabled = true;
+            
+            const observable = this.onKeyboardObservable.add((eventData) => {
+                if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    keyBindingsWalkButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
+
+                    keyBindingPromptModal.isVisible = false;
+                    keyBindingPromptModal.isEnabled = false;
+
+                    this.onKeyboardObservable.remove(observable);
+                }
+            });
+        });
+
+        keyBindingsInteractButton.onPointerClickObservable.add(() => {
+            keyBindingPromptModal.isVisible = true;
+            keyBindingPromptModal.isEnabled = true;
+            
+            const observable = this.onKeyboardObservable.add((eventData) => {
+                if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    keyBindingsInteractButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
+
+                    keyBindingPromptModal.isVisible = false;
+                    keyBindingPromptModal.isEnabled = false;
+
+                    this.onKeyboardObservable.remove(observable);
+                }
+            });
+        });
+
+        keyBindingsJumpButton.onPointerClickObservable.add(() => {
+            keyBindingPromptModal.isVisible = true;
+            keyBindingPromptModal.isEnabled = true;
+            
+            const observable = this.onKeyboardObservable.add((eventData) => {
+                if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    keyBindingsJumpButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
+
+                    keyBindingPromptModal.isVisible = false;
+                    keyBindingPromptModal.isEnabled = false;
+
+                    this.onKeyboardObservable.remove(observable);
+                }
+            });
+        });
+
+        setButtonClickHandler("keyBindingsCancelButton", () => {
+            keyBindingsGrid.isVisible = false;
+            keyBindingsGrid.isEnabled = false;
+            settingsButtonsStackPanel.isVisible = true;
+            settingsButtonsStackPanel.isEnabled = true;
+        });
+
+        this.onPointerDown = () => {
+            if (document.pointerLockElement !== this.getEngine().getRenderingCanvas()) {
+                this.getEngine().getRenderingCanvas()!.requestPointerLock();
+            }
+        };
+
+        document.addEventListener("pointerlockchange", () => {
+            if (document.pointerLockElement !== this.getEngine().getRenderingCanvas()) {
+                this._paused = true;
+                this.physicsEnabled = false;
+                
+                pauseMenu.isVisible = true;
+                mainButtonsStackPanel.isVisible = true;
+                pauseMenu.isEnabled = true;
+                mainButtonsStackPanel.isEnabled = true;
+            }
+        });
+    }
+
+    private async _initializeSoundEffectsAsync(params: IGameParams) {
+
+    }
+
+    private async _initializeVoiceOverAsync(params: IGameParams) {
+        this._voiceOver = await VoiceOver.CreateAsync(this, params.assetToUrl);
+        await Tools.DelayAsync(5000);
+        this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
+    }
+
     public static async CreateAsync(engine: Engine, params: IGameParams): Promise<Level1Scene> {
         const scene = new Level1Scene(engine);
         const physicsPlugin = new AmmoJSPlugin();
@@ -340,20 +556,8 @@ export class Level1Scene extends RenderTargetScene {
             scene._triggerUnitCubes.push(trigger);
         });
 
-        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, scene);
-        scene.environmentTexture = environmentTexture;
-        scene.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
-
-        const playerSpawn = scene.getTransformNodeByName("player_spawn")!;
-        const player = new FirstPersonPlayer(scene, playerSpawn.absolutePosition, scene._updateObservable);
-        player.camera.maxZ = 1000;
-
-        player.camera.rotation.x += 4 * Math.PI / 9;
-        player.camera.rotation.y += Math.PI / 2;
-
-        scene.onPointerDown = () => {
-            engine.getRenderingCanvas()!.requestPointerLock();
-        };
+        scene._loadHdrLighting(params);
+        scene._spawnPlayer();
 
         /* var ssao = new SSAO2RenderingPipeline("ssao", scene, {
             ssaoRatio: 0.5, // Ratio of the SSAO post-process, in a lower resolution
@@ -378,138 +582,10 @@ export class Level1Scene extends RenderTargetScene {
             }
         }); */
 
-        const gameGui = AdvancedDynamicTexture.CreateFullscreenUI("pauseGui");
-        await gameGui.parseFromURLAsync("http://localhost:8181/game_gui.json");
-        
-        const pauseMenu = gameGui.getControlByName("pauseMenu")!;
-        const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
-        const settingsButtonsStackPanel = gameGui.getControlByName("settingsButtonsStackPanel")!;
-        const keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
+        await scene._initializeGameGuiAsync();
 
-        const gameplayUI = gameGui.getControlByName("gameplayUI")!;
-        gameplayUI.isEnabled = false;
-        
-        const walkInputText = gameGui.getControlByName("walkInputText")! as InputText;
-        const interactInputText = gameGui.getControlByName("interactInputText")! as InputText;
-        const jumpInputText = gameGui.getControlByName("jumpInputText")! as InputText;
-        // TODO: Retrieve bindings from local storage, if available.
-        let walkKeyBinding = walkInputText.text;
-        let interactKeyBinding = interactInputText.text;
-        let jumpKeyBinding = jumpInputText.text;
-
-        const interactPromptRectangle = gameGui.getControlByName("interactPromptRectangle")!;
-        const interactTextBlock = gameGui.getControlByName("interactTextBlock")! as TextBlock;
-        interactPromptRectangle.alpha = 0;
-        scene._updateObservable.add(() => {
-            interactPromptRectangle.alpha *= 0.8;
-            interactPromptRectangle.alpha += (0.2 * (scene._activeTriggerName ? 1 : 0));
-        });
-
-        const achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
-        const achievementText = gameGui.getControlByName("achievementText")! as TextBlock;
-        achievementRectangle.topInPixels = 300;
-
-        const setKeyBindings = () => {
-            let binding = walkKeyBinding.toLocaleLowerCase();
-            player.setKeyBinding(InputSamplerAxis.Forward, binding === "space" ? " " : binding);
-            binding = interactKeyBinding.toLocaleLowerCase();
-            scene._interactKeyBinding = binding === "space" ? " " : binding;
-            binding = jumpKeyBinding.toLowerCase();
-            player.setKeyBinding(InputSamplerAxis.Jump, binding === "space" ? " " : binding);
-
-            interactTextBlock.text = interactKeyBinding;
-        };
-        setKeyBindings();
-
-        pauseMenu.isVisible = false;
-        pauseMenu.isEnabled = false;
-        mainButtonsStackPanel.isVisible = false;
-        mainButtonsStackPanel.isEnabled = false;
-        settingsButtonsStackPanel.isVisible = false;
-        settingsButtonsStackPanel.isEnabled = false;
-        keyBindingsGrid.isVisible = false;
-        keyBindingsGrid.isEnabled = false;
-
-        const setButtonClickHandler = (buttonName: string, handler: () => void) => {
-            const button = gameGui.getControlByName(buttonName) as Button;
-            button.onPointerClickObservable.add(handler);
-        }
-
-        setButtonClickHandler("resumeButton", () => {
-            scene._paused = false;
-            scene.physicsEnabled = true;
-            // TODO: Resume the physics simulation.
-            pauseMenu.isVisible = false;
-            pauseMenu.isEnabled = false;
-            mainButtonsStackPanel.isVisible = false;
-            mainButtonsStackPanel.isEnabled = false;
-            engine.getRenderingCanvas()!.requestPointerLock();
-        });
-
-        setButtonClickHandler("settingsButton", () => {
-            mainButtonsStackPanel.isVisible = false;
-            mainButtonsStackPanel.isEnabled = false;
-            settingsButtonsStackPanel.isVisible = true;
-            settingsButtonsStackPanel.isEnabled = true;
-        });
-
-        setButtonClickHandler("exitButton", () => {
-            scene.requestTitleSceneObservable.notifyObservers();
-        });
-
-        setButtonClickHandler("settingsKeyBindingsButton", () => {
-            walkInputText.text = walkKeyBinding;
-            interactInputText.text = interactKeyBinding;
-            jumpInputText.text = jumpKeyBinding;
-
-            settingsButtonsStackPanel.isVisible = false;
-            settingsButtonsStackPanel.isEnabled = false;
-            keyBindingsGrid.isVisible = true;
-            keyBindingsGrid.isEnabled = true;
-        });
-
-        setButtonClickHandler("settingsBackButton", () => {
-            mainButtonsStackPanel.isVisible = true;
-            mainButtonsStackPanel.isEnabled = true;
-            settingsButtonsStackPanel.isVisible = false;
-            settingsButtonsStackPanel.isEnabled = false;
-        });
-
-        setButtonClickHandler("keyBindingsApplyButton", () => {
-            walkKeyBinding = walkInputText.text;
-            interactKeyBinding = interactInputText.text;
-            jumpKeyBinding = jumpInputText.text;
-
-            setKeyBindings();
-
-            keyBindingsGrid.isVisible = false;
-            keyBindingsGrid.isEnabled = false;
-            settingsButtonsStackPanel.isVisible = true;
-            settingsButtonsStackPanel.isEnabled = true;
-        });
-
-        setButtonClickHandler("keyBindingsCancelButton", () => {
-            keyBindingsGrid.isVisible = false;
-            keyBindingsGrid.isEnabled = false;
-            settingsButtonsStackPanel.isVisible = true;
-            settingsButtonsStackPanel.isEnabled = true;
-        });
-
-        document.addEventListener("pointerlockchange", () => {
-            if (document.pointerLockElement !== engine.getRenderingCanvas()) {
-                scene._paused = true;
-                scene.physicsEnabled = false;
-                
-                pauseMenu.isVisible = true;
-                mainButtonsStackPanel.isVisible = true;
-                pauseMenu.isEnabled = true;
-                mainButtonsStackPanel.isEnabled = true;
-            }
-        });
-
-        VoiceOver.CreateAsync(scene, params.assetToUrl).then((vo) => {
-            vo.play(VoiceOverTrack.InvoluntaryFloorInspection);
-        });
+        scene._initializeSoundEffectsAsync(params);
+        scene._initializeVoiceOverAsync(params);
 
         return scene;
     }
