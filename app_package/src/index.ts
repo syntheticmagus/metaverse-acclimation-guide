@@ -1,1 +1,2 @@
-export * from "./metaverseAcclimationGuide"
+export * from "./metaverseAcclimationGuide";
+export * from "./gameParams";

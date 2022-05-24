@@ -9,6 +9,7 @@ import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { AdvancedDynamicTexture, Button } from "@babylonjs/gui";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
+import { HdrEnvironment, IGameParams, Model } from "./gameParams";
 import { RenderTargetScene } from "./renderTargetScene";
 
 export class TitleScene extends RenderTargetScene {
@@ -20,21 +21,15 @@ export class TitleScene extends RenderTargetScene {
         this.requestLevel1SceneObservable = new Observable<void>();
     }
 
-    public static async CreateAsync(engine: Engine): Promise<TitleScene> {
-        const params = {
-            assetUrlRoot: "http://127.0.0.1:8181/",
-            assetUrlLevel1: "level1.glb",
-            assetUrlEnvironmentTexture: "environment.env"
-        };
-
+    public static async CreateAsync(engine: Engine, params: IGameParams): Promise<TitleScene> {
         const scene = new TitleScene(engine);
         const physicsPlugin = new AmmoJSPlugin();
         scene.enablePhysics(undefined, physicsPlugin);
 
-        const loadResult = await SceneLoader.ImportMeshAsync("", params.assetUrlRoot, params.assetUrlLevel1, scene);
+        const loadResult = await SceneLoader.ImportMeshAsync("", params.assetToUrl.get(Model.MainLevel)!, undefined, scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
 
-        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetUrlRoot + params.assetUrlEnvironmentTexture, scene);
+        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, scene);
         scene.environmentTexture = environmentTexture;
         scene.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
 

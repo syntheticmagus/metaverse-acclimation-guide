@@ -1,4 +1,4 @@
-import { AbstractMesh, CubeTexture, Matrix, Ray, Vector3 } from "@babylonjs/core";
+import { AbstractMesh, CubeTexture, Matrix, Ray, Sound, Vector3 } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
@@ -10,7 +10,9 @@ import { Button } from "@babylonjs/gui/2D/controls/button";
 import { InputSamplerAxis } from "@syntheticmagus/first-person-player/lib";
 import { FirstPersonPlayer } from "@syntheticmagus/first-person-player/lib/firstPersonPlayer";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
+import { FiniteStateMachine } from "./finiteStateMachine";
 import { RenderTargetScene } from "./renderTargetScene";
+import { VoiceOverTrack, SoundEffectTrack, IGameParams, Model, HdrEnvironment } from "./gameParams";
 
 class TriggerVolume {
     public onTriggerEntered: Observable<TriggerVolume>;
@@ -61,6 +63,126 @@ class UnitCubeTriggerVolume extends TriggerVolume {
         }
 
         this._triggered = triggered;
+    }
+}
+
+function enumCount(T: any): number {
+    return T._end - T._start - 1;
+}
+
+class VoiceOver {
+    public onTrackStartedObservable: Observable<VoiceOverTrack>;
+    public onTrackFinishedObservable: Observable<VoiceOverTrack>;
+
+    private _tracks: Sound[];
+    private _currentlyPlayingTrack: Sound | undefined;
+
+    private constructor(scene: Level1Scene) {
+        this.onTrackStartedObservable = new Observable<VoiceOverTrack>();
+        this.onTrackFinishedObservable = new Observable<VoiceOverTrack>();
+
+        this._tracks = new Array<Sound>(enumCount(VoiceOverTrack));
+    }
+
+    public static async CreateAsync(scene: Level1Scene, trackToUrl: Map<VoiceOverTrack, string>): Promise<VoiceOver> {
+        const vo = new VoiceOver(scene);
+
+        return new Promise<VoiceOver>((resolve) => {
+            let unloadedTracks = 0;
+            const initializeVoiceTrack = (track: VoiceOverTrack, url: string) => {
+                ++unloadedTracks;
+                vo._tracks[track] = new Sound(VoiceOverTrack[track], url, scene, () => {
+                    --unloadedTracks;
+                    if (unloadedTracks === 0) {
+                        resolve(vo);
+                    }
+                });
+
+                vo._tracks[track].onEndedObservable.add(() => {
+                    if (vo._currentlyPlayingTrack !== vo._tracks[track]) {
+                        throw new Error("Finished playing a track that shouldn't have been playing.");
+                    }
+                    vo.onTrackFinishedObservable.notifyObservers(track);
+                    vo._currentlyPlayingTrack = undefined;
+                });
+            }
+            
+            for (let track = VoiceOverTrack._start + 1; track < VoiceOverTrack._end; ++track) {
+                const url = trackToUrl.get(track);
+                if (url) {
+                    initializeVoiceTrack(track, url);
+                }
+            }
+        });
+    }
+
+    public play(track: VoiceOverTrack) {
+        if (this._currentlyPlayingTrack) {
+            this._currentlyPlayingTrack.stop();
+        }
+        this._currentlyPlayingTrack = this._tracks[track];
+        this._currentlyPlayingTrack.play();
+        this.onTrackStartedObservable.notifyObservers(track);
+    }
+
+    public pause() {
+        this._currentlyPlayingTrack?.pause();
+    }
+
+    public resume() {
+        this._currentlyPlayingTrack?.play();
+    }
+}
+
+class SoundEffects {
+    private _tracks: Sound[];
+
+    private constructor(scene: Level1Scene) {
+        this._tracks = new Array<Sound>(enumCount(SoundEffectTrack));
+    }
+
+    public async createAsync(scene: Level1Scene, trackToUrl: Map<SoundEffectTrack, string>): Promise<void> {
+        const sfx = new SoundEffects(scene);
+
+        return new Promise<void>((resolve) => {
+            let unloadedTracks = 0;
+            const initializeVoiceTrack = (track: SoundEffectTrack, url: string) => {
+                ++unloadedTracks;
+                sfx._tracks[track] = new Sound(SoundEffectTrack[track], url, scene, () => {
+                    --unloadedTracks;
+                    if (unloadedTracks === 0) {
+                        resolve();
+                    }
+                });
+            }
+            
+            for (let track = SoundEffectTrack._start + 1; track < SoundEffectTrack._end; ++track) {
+                const url = trackToUrl.get(track);
+                if (url) {
+                    initializeVoiceTrack(track, url);
+                }
+            }
+        });
+    }
+
+    public play(track: SoundEffectTrack) {
+        this._tracks[track].play();
+    }
+
+    public pause() {
+        this._tracks.forEach((track) => {
+            if (track.isPlaying) {
+                track.pause();
+            }
+        });
+    }
+
+    public resume() {
+        this._tracks.forEach((track) => {
+            if (track.isPaused) {
+                track.play();
+            }
+        });
     }
 }
 
@@ -191,18 +313,12 @@ export class Level1Scene extends RenderTargetScene {
         this._elevatorState = DoorState.Closed;
     }
 
-    public static async CreateAsync(engine: Engine): Promise<Level1Scene> {
-        const params = {
-            assetUrlRoot: "http://127.0.0.1:8181/",
-            assetUrlLevel1: "level1.glb",
-            assetUrlEnvironmentTexture: "environment.env"
-        };
-
+    public static async CreateAsync(engine: Engine, params: IGameParams): Promise<Level1Scene> {
         const scene = new Level1Scene(engine);
         const physicsPlugin = new AmmoJSPlugin();
         scene.enablePhysics(undefined, physicsPlugin);
 
-        const loadResult = await SceneLoader.ImportMeshAsync("", "http://127.0.0.1:8181/", "level1.glb", scene);
+        const loadResult = await SceneLoader.ImportMeshAsync("", params.assetToUrl.get(Model.MainLevel)!, undefined, scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
 
         loadResult.meshes.forEach((mesh) => {
@@ -224,7 +340,7 @@ export class Level1Scene extends RenderTargetScene {
             scene._triggerUnitCubes.push(trigger);
         });
 
-        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetUrlRoot + params.assetUrlEnvironmentTexture, scene);
+        const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, scene);
         scene.environmentTexture = environmentTexture;
         scene.createDefaultSkybox(environmentTexture, true, 500, 0.3, false);
 
@@ -383,13 +499,17 @@ export class Level1Scene extends RenderTargetScene {
             if (document.pointerLockElement !== engine.getRenderingCanvas()) {
                 scene._paused = true;
                 scene.physicsEnabled = false;
-                // TODO: Pause the physics simulation.
+                
                 pauseMenu.isVisible = true;
                 mainButtonsStackPanel.isVisible = true;
                 pauseMenu.isEnabled = true;
                 mainButtonsStackPanel.isEnabled = true;
             }
-        })
+        });
+
+        VoiceOver.CreateAsync(scene, params.assetToUrl).then((vo) => {
+            vo.play(VoiceOverTrack.InvoluntaryFloorInspection);
+        });
 
         return scene;
     }

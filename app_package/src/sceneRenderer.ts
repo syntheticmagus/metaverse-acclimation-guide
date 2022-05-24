@@ -5,22 +5,25 @@ import { Color3 } from "@babylonjs/core/Maths/math.color";
 import { Tools } from "@babylonjs/core/Misc/tools";
 import { BlurEffect } from "./blurEffect";
 import { FadeToColorEffect } from "./fadeToColorEffect";
+import { IGameParams } from "./gameParams";
 import { RenderTargetScene } from "./renderTargetScene";
 
 export class SceneRenderer {
     private readonly _engine: Engine;
     private readonly _blurEffect: BlurEffect;
     private readonly _fadeEffect: FadeToColorEffect;
+    private readonly _params: IGameParams;
 
     private _activeScene?: RenderTargetScene;
     private _fadeStrength: number;
     private _blurStrength: number;
 
-    public constructor(engine: Engine, effectRenderer: EffectRenderer) {
+    public constructor(engine: Engine, effectRenderer: EffectRenderer, params: IGameParams) {
         this._engine = engine;
         const effectArgs = { engine: this._engine, effectRenderer: effectRenderer };
         this._blurEffect = new BlurEffect(effectArgs)
         this._fadeEffect = new FadeToColorEffect(effectArgs);
+        this._params = params;
         this._fadeStrength = 1;
         this._blurStrength = 1;
     
@@ -47,13 +50,13 @@ export class SceneRenderer {
         });
     }
 
-    public async loadSceneAsync<SceneT extends RenderTargetScene>(sceneLoader: (engine: Engine) => Promise<SceneT>, paddingMillis: number = 1000): Promise<SceneT> {
+    public async loadSceneAsync<SceneT extends RenderTargetScene>(sceneLoader: (engine: Engine, params: IGameParams) => Promise<SceneT>, paddingMillis: number = 1000): Promise<SceneT> {
         await this._engine.onEndFrameObservable.runCoroutineAsync(this._blurCoroutine(1));
         await this._engine.onEndFrameObservable.runCoroutineAsync(this._fadeCoroutine(1));
         this._activeScene?.dispose();
         this._activeScene = undefined;
         await Tools.DelayAsync(paddingMillis);
-        const scene = await sceneLoader(this._engine);
+        const scene = await sceneLoader(this._engine, this._params);
         this._activeScene = scene;
         await this._engine.onEndFrameObservable.runCoroutineAsync(this._fadeCoroutine(0));
         await this._engine.onEndFrameObservable.runCoroutineAsync(this._blurCoroutine(0));

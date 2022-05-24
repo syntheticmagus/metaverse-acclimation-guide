@@ -1,11 +1,7 @@
 import "@babylonjs/loaders";
 import { Game } from "./game";
+import { IGameParams } from "./gameParams";
 
-export interface MetaverseAcclimationGuideParameters {
-    canvas: HTMLCanvasElement;
-    assetsHostUrl?: string;
-}
-
-export function runGame(params: MetaverseAcclimationGuideParameters) {
-    Game.CreateAsync(params.canvas);
+export function runGame(params: IGameParams) {
+    Game.CreateAsync(params);
 }
