@@ -1,4 +1,4 @@
-import { Tools } from "@babylonjs/core";
+import { SSAO2RenderingPipeline, Tools } from "@babylonjs/core";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
@@ -49,6 +49,18 @@ export class TitleScene extends RenderTargetScene {
         camera.parent = cameraParent;
         camera.minZ = 0.1;
         camera.maxZ = 1000;
+        
+        const ssao = new SSAO2RenderingPipeline("ssao", scene, {
+            ssaoRatio: 0.5, // Ratio of the SSAO post-process, in a lower resolution
+            blurRatio: 0.5  // Ratio of the combine post-process (combines the SSAO and the scene)
+        });
+        ssao.radius = 1;
+        ssao.totalStrength = 0.5;
+        ssao.expensiveBlur = true;
+        ssao.samples = 16;
+        ssao.maxZ = 250;
+        ssao.textureSamples = 4;
+        scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", scene.activeCamera!);
 
         const titleGui = AdvancedDynamicTexture.CreateFullscreenUI("titleGui");
         await titleGui.parseFromURLAsync("http://localhost:8181/title_gui.json");

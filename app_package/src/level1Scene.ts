@@ -1,10 +1,10 @@
-import { AbstractMesh, CubeTexture, Matrix, Ray, Sound, Tools, Vector3 } from "@babylonjs/core";
+import { AbstractMesh, CubeTexture, Logger, Matrix, Ray, Sound, SSAO2RenderingPipeline, Tools, Vector3 } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { Scene } from "@babylonjs/core/scene";
-import { InputText, Rectangle, TextBlock } from "@babylonjs/gui";
+import { Control, InputText, Rectangle, StackPanel, TextBlock } from "@babylonjs/gui";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
 import { InputSamplerAxis } from "@syntheticmagus/first-person-player/lib";
@@ -99,11 +99,10 @@ class VoiceOver {
                 });
 
                 vo._tracks[track].onEndedObservable.add(() => {
-                    if (vo._currentlyPlayingTrack !== vo._tracks[track]) {
-                        throw new Error("Finished playing a track that shouldn't have been playing.");
-                    }
                     vo.onTrackFinishedObservable.notifyObservers(track);
-                    vo._currentlyPlayingTrack = undefined;
+                    if (vo._currentlyPlayingTrack === vo._tracks[track]) {
+                        vo._currentlyPlayingTrack = undefined;
+                    }
                 });
             }
             
@@ -199,7 +198,7 @@ export class Level1Scene extends RenderTargetScene {
     private _paused: boolean;
     private _updateObservable: Observable<Scene>;
 
-    private _interactKeyBinding: string;
+    private _interactKeyBinding?: string;
 
     private _triggerUnitCubes: Array<UnitCubeTriggerVolume>;
     private _activeTriggerName?: string;
@@ -210,6 +209,11 @@ export class Level1Scene extends RenderTargetScene {
     private _player?: FirstPersonPlayer;
 
     private _voiceOver?: VoiceOver;
+
+    private _keyBindingsGrid?: Control;
+    private _keyBindingsInteractButton?: Button;
+    private _achievementRectangle?: Rectangle;
+    private _achievementTextBlock?: TextBlock;
 
     private constructor(engine: Engine) {
         super(engine);
@@ -246,7 +250,6 @@ export class Level1Scene extends RenderTargetScene {
             this._updateObservable.notifyObservers(this);
         });
 
-        this._interactKeyBinding = "e";
         this.onKeyboardObservable.add((eventData) => {
             if (eventData.type === 2 && eventData.event.key === this._interactKeyBinding && this._activeTriggerName) {
                 if (this._activeTriggerName === "door") {
@@ -317,6 +320,24 @@ export class Level1Scene extends RenderTargetScene {
         this._elevatorState = DoorState.Closed;
     }
 
+    private *_showAchievementCoroutine(text: string) {
+        this._achievementTextBlock!.text = text;
+
+        for (let px = 30; px >= 0; --px) {
+            this._achievementRectangle!.topInPixels = 10 * px;
+            yield;
+        }
+
+        for (let idx = 0; idx < 180; ++idx) {
+            yield;
+        }
+
+        for (let px = 0; px <= 30; ++px) {
+            this._achievementRectangle!.topInPixels = 10 * px;
+            yield;
+        }
+    }
+
     private _loadHdrLighting(params: IGameParams) {
         const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, this);
         this.environmentTexture = environmentTexture;
@@ -330,6 +351,10 @@ export class Level1Scene extends RenderTargetScene {
 
         this._player.camera.rotation.x += 4 * Math.PI / 9;
         this._player.camera.rotation.y += Math.PI / 2;
+
+        this._player.lookSensitivity = 0;
+        this._player.moveSpeed = 0;
+        this._player.jumpForce = 0;
     }
 
     private async _initializeGameGuiAsync() {
@@ -339,17 +364,17 @@ export class Level1Scene extends RenderTargetScene {
         const pauseMenu = gameGui.getControlByName("pauseMenu")!;
         const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
         const settingsButtonsStackPanel = gameGui.getControlByName("settingsButtonsStackPanel")!;
-        const keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
+        this._keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
 
         const gameplayUI = gameGui.getControlByName("gameplayUI")!;
         gameplayUI.isEnabled = false;
         
         const keyBindingsWalkButton = gameGui.getControlByName("keyBindingsWalkButton")! as Button;
-        const keyBindingsInteractButton = gameGui.getControlByName("keyBindingsInteractButton")! as Button;
+        this._keyBindingsInteractButton = gameGui.getControlByName("keyBindingsInteractButton")! as Button;
         const keyBindingsJumpButton = gameGui.getControlByName("keyBindingsJumpButton")! as Button;
         // TODO: Retrieve bindings from local storage, if available.
         let walkKeyBinding = keyBindingsWalkButton.textBlock!.text;
-        let interactKeyBinding = keyBindingsInteractButton.textBlock!.text;
+        let interactKeyBinding = this._keyBindingsInteractButton.textBlock!.text;
         let jumpKeyBinding = keyBindingsJumpButton.textBlock!.text;
 
         const keyBindingPromptModal = gameGui.getControlByName("keyBindingPromptModal")!;
@@ -362,9 +387,9 @@ export class Level1Scene extends RenderTargetScene {
             interactPromptRectangle.alpha += (0.2 * (this._activeTriggerName ? 1 : 0));
         });
 
-        const achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
-        const achievementText = gameGui.getControlByName("achievementText")! as TextBlock;
-        achievementRectangle.topInPixels = 300;
+        this._achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
+        this._achievementTextBlock = gameGui.getControlByName("achievementText")! as TextBlock;
+        this._achievementRectangle.topInPixels = 300;
 
         const setKeyBindings = () => {
             let binding = walkKeyBinding.toLocaleLowerCase();
@@ -384,8 +409,8 @@ export class Level1Scene extends RenderTargetScene {
         mainButtonsStackPanel.isEnabled = false;
         settingsButtonsStackPanel.isVisible = false;
         settingsButtonsStackPanel.isEnabled = false;
-        keyBindingsGrid.isVisible = false;
-        keyBindingsGrid.isEnabled = false;
+        this._keyBindingsGrid.isVisible = false;
+        this._keyBindingsGrid.isEnabled = false;
 
         const setButtonClickHandler = (buttonName: string, handler: () => void) => {
             const button = gameGui.getControlByName(buttonName) as Button;
@@ -416,13 +441,13 @@ export class Level1Scene extends RenderTargetScene {
 
         setButtonClickHandler("settingsKeyBindingsButton", () => {
             keyBindingsWalkButton.textBlock!.text = walkKeyBinding;
-            keyBindingsInteractButton.textBlock!.text = interactKeyBinding;
+            this._keyBindingsInteractButton!.textBlock!.text = interactKeyBinding;
             keyBindingsJumpButton.textBlock!.text = jumpKeyBinding;
 
             settingsButtonsStackPanel.isVisible = false;
             settingsButtonsStackPanel.isEnabled = false;
-            keyBindingsGrid.isVisible = true;
-            keyBindingsGrid.isEnabled = true;
+            this._keyBindingsGrid!.isVisible = true;
+            this._keyBindingsGrid!.isEnabled = true;
         });
 
         setButtonClickHandler("settingsBackButton", () => {
@@ -434,13 +459,13 @@ export class Level1Scene extends RenderTargetScene {
 
         setButtonClickHandler("keyBindingsApplyButton", () => {
             walkKeyBinding = keyBindingsWalkButton.textBlock!.text;
-            interactKeyBinding = keyBindingsInteractButton.textBlock!.text;
+            interactKeyBinding = this._keyBindingsInteractButton!.textBlock!.text;
             jumpKeyBinding = keyBindingsJumpButton.textBlock!.text;
 
             setKeyBindings();
 
-            keyBindingsGrid.isVisible = false;
-            keyBindingsGrid.isEnabled = false;
+            this._keyBindingsGrid!.isVisible = false;
+            this._keyBindingsGrid!.isEnabled = false;
             settingsButtonsStackPanel.isVisible = true;
             settingsButtonsStackPanel.isEnabled = true;
         });
@@ -461,13 +486,13 @@ export class Level1Scene extends RenderTargetScene {
             });
         });
 
-        keyBindingsInteractButton.onPointerClickObservable.add(() => {
+        this._keyBindingsInteractButton.onPointerClickObservable.add(() => {
             keyBindingPromptModal.isVisible = true;
             keyBindingPromptModal.isEnabled = true;
             
             const observable = this.onKeyboardObservable.add((eventData) => {
                 if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
-                    keyBindingsInteractButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
+                    this._keyBindingsInteractButton!.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
 
                     keyBindingPromptModal.isVisible = false;
                     keyBindingPromptModal.isEnabled = false;
@@ -494,8 +519,8 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("keyBindingsCancelButton", () => {
-            keyBindingsGrid.isVisible = false;
-            keyBindingsGrid.isEnabled = false;
+            this._keyBindingsGrid!.isVisible = false;
+            this._keyBindingsGrid!.isEnabled = false;
             settingsButtonsStackPanel.isVisible = true;
             settingsButtonsStackPanel.isEnabled = true;
         });
@@ -519,14 +544,168 @@ export class Level1Scene extends RenderTargetScene {
         });
     }
 
+    private async _delayAsync(millis: number) {
+        await Tools.DelayAsync(millis);
+        // await this._updateObservable.runCoroutineAsync(function *() {
+        //     while (millis > 0) {
+        //         millis -= 32;
+        //     }
+        // }());
+    }
+
     private async _initializeSoundEffectsAsync(params: IGameParams) {
 
     }
 
     private async _initializeVoiceOverAsync(params: IGameParams) {
         this._voiceOver = await VoiceOver.CreateAsync(this, params.assetToUrl);
-        await Tools.DelayAsync(5000);
-        this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
+
+        let mouseLookFinished = false;
+        this._voiceOver.onTrackFinishedObservable.add((track) => {
+            switch (track) {
+                case VoiceOverTrack.InvoluntaryFloorInspection:
+                    this._voiceOver!.play(VoiceOverTrack.PleaseRemainCalm);
+                    break;
+                case VoiceOverTrack.PleaseRemainCalm:
+                    this._delayAsync(4000).then(() => {
+                        this._voiceOver!.play(VoiceOverTrack.AchievementsInCalmness);
+                    });
+                    break;
+                case VoiceOverTrack.AchievementsInCalmness:
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Remain Calm"));
+                    this._voiceOver!.play(VoiceOverTrack.UnactionableInformation);
+                    break;
+                case VoiceOverTrack.UnactionableInformation:
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Remain Attentive"));
+                    this._voiceOver!.play(VoiceOverTrack.NoteworthyAchievements);
+                    break;
+                case VoiceOverTrack.NoteworthyAchievements:
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Remain Patient"));
+                    this._voiceOver!.play(VoiceOverTrack.BanalitiesOfInteractions);
+                    break;
+                case VoiceOverTrack.BanalitiesOfInteractions:
+                    this._voiceOver!.play(VoiceOverTrack.StaringAtTheFloor);
+                    break;
+                case VoiceOverTrack.StaringAtTheFloor:
+                    this._delayAsync(4000).then(() => {
+                        this._voiceOver!.play(VoiceOverTrack.MoveTheMouseUp);
+                    });
+                    break;
+                case VoiceOverTrack.MouseLook:
+                    mouseLookFinished = true;
+                    break;
+                case VoiceOverTrack.PressTheUnboundKey:
+                    this._delayAsync(4000).then(() => {
+                        this._voiceOver!.play(VoiceOverTrack.ExperienceMenu);
+                    });
+                    break;
+                case VoiceOverTrack.AvoidUsingMenus:
+                    this._voiceOver!.play(VoiceOverTrack.KeyBindingsSubmenu);
+                    break;
+            }
+        });
+
+        this._voiceOver.onTrackStartedObservable.add((track) => {
+            const scene = this;
+            switch (track) {
+                case VoiceOverTrack.MoveTheMouseUp:
+                    this._player!.lookSensitivity = 1 / 400;
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (scene._activeCamera!.getWorldMatrix().m[5] < 0.9) {
+                            yield;
+                        }
+
+                        yield scene._delayAsync(1000);
+
+                        scene._voiceOver!.play(VoiceOverTrack.MouseLook);
+                    }());
+                    break;
+                case VoiceOverTrack.MouseLook:
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (scene._activeCamera!.getWorldMatrix().m[2] < 0.3) {
+                            yield;
+                        }
+
+                        while (!mouseLookFinished) {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.WAsInWalk);
+                    }());
+                    break;
+                case VoiceOverTrack.WAsInWalk:
+                    this._player!.moveSpeed = 0.04;
+                    this._player!.jumpForce = 30;
+                    const startingPosition = this.activeCamera!.globalPosition.clone();
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (Vector3.DistanceSquared(scene._activeCamera!.globalPosition, startingPosition) < 2) {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.ContainsOtherRooms);
+                    }());
+                    break;
+                case VoiceOverTrack.ContainsOtherRooms:
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Get Movin'!"));
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (scene._activeTriggerName !== "door") {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.PressTheUnboundKey);
+                    }());
+                    break;
+                case VoiceOverTrack.ExperienceMenu:
+                    this.onBeforeRenderObservable.runCoroutineAsync(function *() {
+                        while (!scene._paused) {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.AvoidUsingMenus);
+                    }());
+                    break;
+                case VoiceOverTrack.AvoidUsingMenus:
+                    this.onBeforeRenderObservable.runCoroutineAsync(function *() {
+                        while (!scene._keyBindingsGrid!.isVisible) {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.Dvorak);
+                    }());
+                    
+                    this.onBeforeRenderObservable.runCoroutineAsync(function *() {
+                        while (scene._keyBindingsInteractButton!.textBlock!.text === "[unbound]") {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.Apply);
+                    }());
+                    
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (scene._interactKeyBinding === "[unbound]") {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.InteractKey);
+                    }());
+                    break;
+                case VoiceOverTrack.InteractKey:
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        while (scene._doorState !== DoorState.Animating) {
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.TakeOnTheChallenges);
+                    }());
+                    break;
+            }
+        });
+
+        // Kick off the sequence.
+        await this._delayAsync(5000);
+        //this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
+        this._player!.lookSensitivity = 1 / 400;
+        this._voiceOver.play(VoiceOverTrack.WAsInWalk); // TODO: DEBUG
     }
 
     public static async CreateAsync(engine: Engine, params: IGameParams): Promise<Level1Scene> {
@@ -559,7 +738,7 @@ export class Level1Scene extends RenderTargetScene {
         scene._loadHdrLighting(params);
         scene._spawnPlayer();
 
-        /* var ssao = new SSAO2RenderingPipeline("ssao", scene, {
+        const ssao = new SSAO2RenderingPipeline("ssao", scene, {
             ssaoRatio: 0.5, // Ratio of the SSAO post-process, in a lower resolution
             blurRatio: 0.5  // Ratio of the combine post-process (combines the SSAO and the scene)
         });
@@ -568,8 +747,8 @@ export class Level1Scene extends RenderTargetScene {
         ssao.expensiveBlur = true;
         ssao.samples = 16;
         ssao.maxZ = 250;
-        // Attach camera to the SSAO render pipeline
-        scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", scene.activeCamera!); // Create the SSR post-process! */
+        ssao.textureSamples = 4;
+        scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", scene.activeCamera!);
         
         /* var ssr = new ScreenSpaceReflectionPostProcess("ssr", scene, 1.0, scene.activeCamera!);
         ssr.reflectionSamples = 32; // Low quality.
