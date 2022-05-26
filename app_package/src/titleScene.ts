@@ -22,6 +22,8 @@ export class TitleScene extends RenderTargetScene {
     }
 
     public static async CreateAsync(engine: Engine, params: IGameParams): Promise<TitleScene> {
+        document.exitPointerLock();
+
         const scene = new TitleScene(engine);
         const physicsPlugin = new AmmoJSPlugin();
         scene.enablePhysics(undefined, physicsPlugin);

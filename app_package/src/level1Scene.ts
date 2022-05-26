@@ -4,7 +4,7 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { Scene } from "@babylonjs/core/scene";
-import { Control, InputText, Rectangle, StackPanel, TextBlock } from "@babylonjs/gui";
+import { Control, Rectangle, TextBlock } from "@babylonjs/gui";
 import { AdvancedDynamicTexture } from "@babylonjs/gui/2D/advancedDynamicTexture";
 import { Button } from "@babylonjs/gui/2D/controls/button";
 import { InputSamplerAxis } from "@syntheticmagus/first-person-player/lib";
@@ -13,6 +13,7 @@ import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physi
 import { FiniteStateMachine } from "./finiteStateMachine";
 import { RenderTargetScene } from "./renderTargetScene";
 import { VoiceOverTrack, SoundEffectTrack, IGameParams, Model, HdrEnvironment } from "./gameParams";
+import { sceneUboDeclaration } from "@babylonjs/core/Shaders/ShadersInclude/sceneUboDeclaration";
 
 class TriggerVolume {
     public onTriggerEntered: Observable<TriggerVolume>;
@@ -196,12 +197,18 @@ export class Level1Scene extends RenderTargetScene {
     public requestLevel1SceneObservable: Observable<void>;
 
     private _paused: boolean;
+    private _pauseVoiceOverWhenGamePauses: boolean;
     private _updateObservable: Observable<Scene>;
+    private _triggerInteractionObservable: Observable<string>;
 
     private _interactKeyBinding?: string;
 
-    private _triggerUnitCubes: Array<UnitCubeTriggerVolume>;
-    private _activeTriggerName?: string;
+    private _interactionTriggerUnitCubes: Array<UnitCubeTriggerVolume>;
+    private _activeInteractionTriggerName?: string;
+
+    private _mainRoomTriggerUnitCube?: UnitCubeTriggerVolume;
+    private _hallwayTriggerUnitCube?: UnitCubeTriggerVolume;
+    private _elevatorTriggerUnitCube?: UnitCubeTriggerVolume;
 
     private _doorState: DoorState;
     private _elevatorState: DoorState;
@@ -211,6 +218,7 @@ export class Level1Scene extends RenderTargetScene {
     private _voiceOver?: VoiceOver;
 
     private _keyBindingsGrid?: Control;
+    private _settingsKeyBindingsButton?: Control;
     private _keyBindingsInteractButton?: Button;
     private _achievementRectangle?: Rectangle;
     private _achievementTextBlock?: TextBlock;
@@ -222,7 +230,9 @@ export class Level1Scene extends RenderTargetScene {
         this.requestLevel1SceneObservable = new Observable<void>();
 
         this._paused = false;
+        this._pauseVoiceOverWhenGamePauses = true;
         this._updateObservable = new Observable<Scene>();
+        this._triggerInteractionObservable = new Observable<string>();
 
         const ray = new Ray(new Vector3(), new Vector3());
         const raycastOrigin = new Vector3();
@@ -242,7 +252,7 @@ export class Level1Scene extends RenderTargetScene {
 
                 const result = this._physicsEngine.raycast(raycastOrigin, raycastDestination);
 
-                this._triggerUnitCubes.forEach((trigger) => {
+                this._interactionTriggerUnitCubes.forEach((trigger) => {
                     trigger.triggerOnVector(result.hasHit ? result.hitPointWorld : undefined);
                 });
             }
@@ -251,24 +261,28 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         this.onKeyboardObservable.add((eventData) => {
-            if (eventData.type === 2 && eventData.event.key === this._interactKeyBinding && this._activeTriggerName) {
-                if (this._activeTriggerName === "door") {
-                    if (this._doorState === DoorState.Closed) {
-                        this._updateObservable.runCoroutineAsync(this._openDoorCoroutine());
-                    } else if (this._doorState === DoorState.Open) {
-                        this._updateObservable.runCoroutineAsync(this._closeDoorCoroutine());
-                    }
-                } else if (this._activeTriggerName === "button") {
-                    if (this._elevatorState === DoorState.Closed) {
-                        this._updateObservable.runCoroutineAsync(this._openElevatorCoroutine());
-                    } else if (this._elevatorState === DoorState.Open) {
-                        this._updateObservable.runCoroutineAsync(this._closeElevatorCoroutine());
-                    }
+            if (eventData.type === 2 && eventData.event.key === this._interactKeyBinding && this._activeInteractionTriggerName) {
+                this._triggerInteractionObservable.notifyObservers(this._activeInteractionTriggerName);
+            }
+        });
+
+        this._triggerInteractionObservable.add((trigger) => {
+            if (trigger === "door") {
+                if (this._doorState === DoorState.Closed) {
+                    this._updateObservable.runCoroutineAsync(this._openDoorCoroutine());
+                } else if (this._doorState === DoorState.Open) {
+                    this._updateObservable.runCoroutineAsync(this._closeDoorCoroutine());
+                }
+            } else if (trigger === "button") {
+                if (this._elevatorState === DoorState.Closed) {
+                    this._updateObservable.runCoroutineAsync(this._openElevatorCoroutine());
+                } else if (this._elevatorState === DoorState.Open) {
+                    this._updateObservable.runCoroutineAsync(this._closeElevatorCoroutine());
                 }
             }
         });
 
-        this._triggerUnitCubes = [];
+        this._interactionTriggerUnitCubes = [];
 
         this._doorState = DoorState.Closed;
         this._elevatorState = DoorState.Closed;
@@ -365,6 +379,10 @@ export class Level1Scene extends RenderTargetScene {
         const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
         const settingsButtonsStackPanel = gameGui.getControlByName("settingsButtonsStackPanel")!;
         this._keyBindingsGrid = gameGui.getControlByName("keyBindingsGrid")!;
+        
+        this._settingsKeyBindingsButton = gameGui.getControlByName("settingsKeyBindingsButton")!;
+        this._settingsKeyBindingsButton.isEnabled = false;
+        this._settingsKeyBindingsButton.isVisible = false;
 
         const gameplayUI = gameGui.getControlByName("gameplayUI")!;
         gameplayUI.isEnabled = false;
@@ -384,7 +402,7 @@ export class Level1Scene extends RenderTargetScene {
         interactPromptRectangle.alpha = 0;
         this._updateObservable.add(() => {
             interactPromptRectangle.alpha *= 0.8;
-            interactPromptRectangle.alpha += (0.2 * (this._activeTriggerName ? 1 : 0));
+            interactPromptRectangle.alpha += (0.2 * (this._activeInteractionTriggerName && !this._activeInteractionTriggerName.startsWith("door_") ? 1 : 0));
         });
 
         this._achievementRectangle = gameGui.getControlByName("achievementRectangle")! as Rectangle;
@@ -420,6 +438,9 @@ export class Level1Scene extends RenderTargetScene {
         setButtonClickHandler("resumeButton", () => {
             this._paused = false;
             this.physicsEnabled = true;
+            if (this._pauseVoiceOverWhenGamePauses) {
+                this._voiceOver?.resume();
+            }
             
             pauseMenu.isVisible = false;
             pauseMenu.isEnabled = false;
@@ -535,6 +556,9 @@ export class Level1Scene extends RenderTargetScene {
             if (document.pointerLockElement !== this.getEngine().getRenderingCanvas()) {
                 this._paused = true;
                 this.physicsEnabled = false;
+                if (this._pauseVoiceOverWhenGamePauses) {
+                    this._voiceOver?.pause();
+                }
                 
                 pauseMenu.isVisible = true;
                 mainButtonsStackPanel.isVisible = true;
@@ -545,12 +569,13 @@ export class Level1Scene extends RenderTargetScene {
     }
 
     private async _delayAsync(millis: number) {
-        await Tools.DelayAsync(millis);
-        // await this._updateObservable.runCoroutineAsync(function *() {
-        //     while (millis > 0) {
-        //         millis -= 32;
-        //     }
-        // }());
+        const scene = this;
+        await this._updateObservable.runCoroutineAsync(function *() {
+            while (millis > 0) {
+                millis -= scene.deltaTime;
+                yield;
+            }
+        }());
     }
 
     private async _initializeSoundEffectsAsync(params: IGameParams) {
@@ -602,6 +627,9 @@ export class Level1Scene extends RenderTargetScene {
                 case VoiceOverTrack.AvoidUsingMenus:
                     this._voiceOver!.play(VoiceOverTrack.KeyBindingsSubmenu);
                     break;
+                case VoiceOverTrack.OverlyLiteralInterpretation:
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Golf Clap"));
+                    break;
             }
         });
 
@@ -648,7 +676,7 @@ export class Level1Scene extends RenderTargetScene {
                 case VoiceOverTrack.ContainsOtherRooms:
                     this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Get Movin'!"));
                     this._updateObservable.runCoroutineAsync(function *() {
-                        while (scene._activeTriggerName !== "door") {
+                        while (scene._activeInteractionTriggerName !== "door") {
                             yield;
                         }
                         
@@ -656,6 +684,9 @@ export class Level1Scene extends RenderTargetScene {
                     }());
                     break;
                 case VoiceOverTrack.ExperienceMenu:
+                    this._settingsKeyBindingsButton!.isEnabled = true;
+                    this._settingsKeyBindingsButton!.isVisible = true;
+                    this._pauseVoiceOverWhenGamePauses = false;
                     this.onBeforeRenderObservable.runCoroutineAsync(function *() {
                         while (!scene._paused) {
                             yield;
@@ -698,14 +729,77 @@ export class Level1Scene extends RenderTargetScene {
                         scene._voiceOver!.play(VoiceOverTrack.TakeOnTheChallenges);
                     }());
                     break;
+                case VoiceOverTrack.TakeOnTheChallenges:
+                    this._pauseVoiceOverWhenGamePauses = true;
+                    this._updateObservable.runCoroutineAsync(this._showAchievementCoroutine("Already Ready"));
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        let hallwayTriggered = false;
+                        scene._hallwayTriggerUnitCube!.onTriggerEntered.addOnce(() => {
+                            hallwayTriggered = true;
+                        });
+
+                        while (!hallwayTriggered) {
+                            scene._hallwayTriggerUnitCube!.triggerOnVector(scene.activeCamera!.globalPosition);
+                            yield;
+                        }
+                        
+                        scene._voiceOver!.play(VoiceOverTrack.ThisIsAHallway);
+                    }());
+                    break;
+                case VoiceOverTrack.ThisIsAHallway:
+                    let elevatorTriggered = false;
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        scene._elevatorTriggerUnitCube!.onTriggerEntered.addOnce(() => {
+                            elevatorTriggered = true;
+                        });
+
+                        while (!elevatorTriggered) {
+                            scene._elevatorTriggerUnitCube!.triggerOnVector(scene.activeCamera!.globalPosition);
+                            yield;
+                        }
+                        
+                        yield scene._updateObservable.runCoroutineAsync(scene._closeElevatorCoroutine());
+                        scene.requestTitleSceneObservable.notifyObservers();
+                    }());
+
+                    this._updateObservable.runCoroutineAsync(function *() {
+                        let mainRoomTriggered = false;
+                        scene._mainRoomTriggerUnitCube!.onTriggerEntered.addOnce(() => {
+                            mainRoomTriggered = true;
+                        });
+
+                        while (!mainRoomTriggered) {
+                            scene._mainRoomTriggerUnitCube!.triggerOnVector(scene.activeCamera!.globalPosition);
+                            yield;
+                        }
+                        
+                        if (!elevatorTriggered) {
+                            scene._voiceOver!.play(VoiceOverTrack.OverlyLiteralInterpretation);
+                        }
+                    }());
+
+                    const buttonObserver = scene._triggerInteractionObservable.add((trigger) => {
+                        if (trigger === "button") {
+                            scene._triggerInteractionObservable.remove(buttonObserver);
+                            scene._voiceOver!.play(VoiceOverTrack.Congratulations);
+                        }
+                    });
+
+                    const doorShapedWallObserver = scene._triggerInteractionObservable.add((trigger) => {
+                        if (trigger.startsWith("door_shaped_wall_")) {
+                            scene._triggerInteractionObservable.remove(doorShapedWallObserver);
+                            if (!elevatorTriggered) {
+                                scene._voiceOver!.play(VoiceOverTrack.DoorShapedWall);
+                            }
+                        }
+                    });
+                    break;
             }
         });
 
         // Kick off the sequence.
         await this._delayAsync(5000);
-        //this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
-        this._player!.lookSensitivity = 1 / 400;
-        this._voiceOver.play(VoiceOverTrack.WAsInWalk); // TODO: DEBUG
+        this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
     }
 
     public static async CreateAsync(engine: Engine, params: IGameParams): Promise<Level1Scene> {
@@ -720,20 +814,34 @@ export class Level1Scene extends RenderTargetScene {
             mesh.isPickable = false;
         });
 
-        const triggerNames = ["door", "button"];
+        const triggerNames = [
+            "door",
+            "button",
+            "door_shaped_wall_1",
+            "door_shaped_wall_2",
+            "door_shaped_wall_3",
+            "door_shaped_wall_4",
+            "door_shaped_wall_5",
+            "door_shaped_wall_6",
+            "door_shaped_wall_7"
+        ];
         triggerNames.forEach((name) => {
             const mesh = scene.getMeshByName(`trigger_unit_cube_${name}`)!;
             const trigger = new UnitCubeTriggerVolume(mesh);
             trigger.onTriggerEntered.add(() => {
-                scene._activeTriggerName = name;
+                scene._activeInteractionTriggerName = name;
             });
             trigger.onTriggerExited.add(() => {
-                if (scene._activeTriggerName! === name) {
-                    scene._activeTriggerName = undefined;
+                if (scene._activeInteractionTriggerName! === name) {
+                    scene._activeInteractionTriggerName = undefined;
                 }
             });
-            scene._triggerUnitCubes.push(trigger);
+            scene._interactionTriggerUnitCubes.push(trigger);
         });
+
+        scene._mainRoomTriggerUnitCube = new UnitCubeTriggerVolume(scene.getMeshByName("trigger_unit_cube_main_room")!);
+        scene._hallwayTriggerUnitCube = new UnitCubeTriggerVolume(scene.getMeshByName("trigger_unit_cube_hallway")!);
+        scene._elevatorTriggerUnitCube = new UnitCubeTriggerVolume(scene.getMeshByName("trigger_unit_cube_elevator")!);
 
         scene._loadHdrLighting(params);
         scene._spawnPlayer();
