@@ -197,6 +197,7 @@ enum DoorState{
 export class Level1Scene extends RenderTargetScene {
     public requestTitleSceneObservable: Observable<void>;
     public requestLevel1SceneObservable: Observable<void>;
+    public requestCreditsSceneObservable: Observable<void>;
 
     private _paused: boolean;
     private _pauseVoiceOverWhenGamePauses: boolean;
@@ -231,6 +232,7 @@ export class Level1Scene extends RenderTargetScene {
 
         this.requestTitleSceneObservable = new Observable<void>();
         this.requestLevel1SceneObservable = new Observable<void>();
+        this.requestCreditsSceneObservable = new Observable<void>();
 
         this._paused = false;
         this._pauseVoiceOverWhenGamePauses = true;
@@ -823,7 +825,7 @@ export class Level1Scene extends RenderTargetScene {
                         }
                         
                         yield scene._updateObservable.runCoroutineAsync(scene._closeElevatorCoroutine());
-                        scene.requestTitleSceneObservable.notifyObservers();
+                        scene.requestCreditsSceneObservable.notifyObservers();
                     }());
 
                     this._updateObservable.runCoroutineAsync(function *() {

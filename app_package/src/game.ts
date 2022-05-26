@@ -1,6 +1,7 @@
 import { Sound } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { EffectRenderer } from "@babylonjs/core/Materials/effectRenderer";
+import { CreditsScene } from "./creditsScene";
 import { IGameParams, SoundEffectTrack } from "./gameParams";
 import { Level1Scene } from "./level1Scene";
 import { SceneRenderer } from "./sceneRenderer";
@@ -32,5 +33,11 @@ export class Game {
         const level1Scene = await this._sceneRenderer.loadSceneAsync(Level1Scene.CreateAsync);
         level1Scene.requestTitleSceneObservable.add(() => { this._loadTitleSceneAsync(); });
         level1Scene.requestLevel1SceneObservable.add(() => { this._loadLevel1SceneAsync(); });
+        level1Scene.requestCreditsSceneObservable.add(() => { this._loadCreditsSceneAsync(); });
+    }
+
+    private async _loadCreditsSceneAsync(): Promise<void> {
+        const creditsScene = await this._sceneRenderer.loadSceneAsync(CreditsScene.CreateAsync);
+        creditsScene.requestTitleSceneObservable.add(() => { this._loadTitleSceneAsync(); });
     }
 }
