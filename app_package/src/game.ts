@@ -1,6 +1,7 @@
+import { Sound } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { EffectRenderer } from "@babylonjs/core/Materials/effectRenderer";
-import { IGameParams } from "./gameParams";
+import { IGameParams, SoundEffectTrack } from "./gameParams";
 import { Level1Scene } from "./level1Scene";
 import { SceneRenderer } from "./sceneRenderer";
 import { TitleScene } from "./titleScene";

@@ -1,4 +1,4 @@
-import { SSAO2RenderingPipeline, Tools } from "@babylonjs/core";
+import { Sound, SSAO2RenderingPipeline, Tools } from "@babylonjs/core";
 import { TargetCamera } from "@babylonjs/core/Cameras/targetCamera";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
@@ -9,7 +9,7 @@ import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { AdvancedDynamicTexture, Button } from "@babylonjs/gui";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
-import { HdrEnvironment, IGameParams, Model } from "./gameParams";
+import { HdrEnvironment, IGameParams, Model, SoundEffectTrack } from "./gameParams";
 import { RenderTargetScene } from "./renderTargetScene";
 
 export class TitleScene extends RenderTargetScene {
@@ -27,6 +27,9 @@ export class TitleScene extends RenderTargetScene {
         const scene = new TitleScene(engine);
         const physicsPlugin = new AmmoJSPlugin();
         scene.enablePhysics(undefined, physicsPlugin);
+
+        const clickSound = new Sound("click", params.assetToUrl.get(SoundEffectTrack.Click), scene);
+        clickSound.setVolume(0.1);
 
         const loadResult = await SceneLoader.ImportMeshAsync("", params.assetToUrl.get(Model.MainLevel)!, undefined, scene);
         PhysicsPostLoader.AddPhysicsToHierarchy(loadResult.meshes[0], scene);
@@ -72,18 +75,23 @@ export class TitleScene extends RenderTargetScene {
 
         const playButton = titleGui.getControlByName("playButton") as Button;
         playButton.onPointerClickObservable.add(() => {
+            clickSound.play();
+
             engine.getRenderingCanvas()!.requestPointerLock();
             scene.requestLevel1SceneObservable.notifyObservers();
         });
 
         const settingsButton = titleGui.getControlByName("settingsButton") as Button;
         settingsButton.onPointerClickObservable.add(() => {
+            clickSound.play();
+
             mainButtonsStackPanel.isVisible = false;
             settingsButtonsStackPanel.isVisible = true;
         });
 
         const settingsBackButton = titleGui.getControlByName("settingsBackButton") as Button;
         settingsBackButton.onPointerClickObservable.add(() => {
+            clickSound.play();
             mainButtonsStackPanel.isVisible = true;
             settingsButtonsStackPanel.isVisible = false;
         });

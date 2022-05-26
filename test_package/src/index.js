@@ -60,11 +60,11 @@ const assetToUrl = new Map([
     [VoiceOverTrack.DoorShapedWall, `${assetsHostUrl}/voiceover/21-door_shaped_wall.mp3`],
     [VoiceOverTrack.Congratulations, `${assetsHostUrl}/voiceover/22-congratulations.mp3`],
 
-    [SoundEffectTrack.Music, `${assetsHostUrl}/sfx/todo.mp3`],
-    [SoundEffectTrack.Click, `${assetsHostUrl}/sfx/todo.mp3`],
-    [SoundEffectTrack.Footstep, `${assetsHostUrl}/sfx/todo.mp3`],
-    [SoundEffectTrack.Hinge, `${assetsHostUrl}/sfx/todo.mp3`],
-    [SoundEffectTrack.Elevator, `${assetsHostUrl}/sfx/todo.mp3`],
+    [SoundEffectTrack.Music, `${assetsHostUrl}/sfx/music.mp3`],
+    [SoundEffectTrack.Click, `${assetsHostUrl}/sfx/click.mp3`],
+    [SoundEffectTrack.Footstep, `${assetsHostUrl}/sfx/footstep.mp3`],
+    [SoundEffectTrack.Hinge, `${assetsHostUrl}/sfx/hinge.mp3`],
+    [SoundEffectTrack.Elevator, `${assetsHostUrl}/sfx/elevator.mp3`],
 
     [Model.MainLevel, `${assetsHostUrl}/level1.glb`],
 

@@ -141,17 +141,17 @@ class SoundEffects {
         this._tracks = new Array<Sound>(enumCount(SoundEffectTrack));
     }
 
-    public async createAsync(scene: Level1Scene, trackToUrl: Map<SoundEffectTrack, string>): Promise<void> {
+    public static async CreateAsync(scene: Level1Scene, trackToUrl: Map<SoundEffectTrack, string>): Promise<SoundEffects> {
         const sfx = new SoundEffects(scene);
 
-        return new Promise<void>((resolve) => {
+        return new Promise<SoundEffects>((resolve) => {
             let unloadedTracks = 0;
             const initializeVoiceTrack = (track: SoundEffectTrack, url: string) => {
                 ++unloadedTracks;
                 sfx._tracks[track] = new Sound(SoundEffectTrack[track], url, scene, () => {
                     --unloadedTracks;
                     if (unloadedTracks === 0) {
-                        resolve();
+                        resolve(sfx);
                     }
                 });
             }
@@ -165,8 +165,10 @@ class SoundEffects {
         });
     }
 
-    public play(track: SoundEffectTrack) {
+    public play(track: SoundEffectTrack, loop: boolean = false, volume: number = 1) {
         this._tracks[track].play();
+        this._tracks[track].loop = loop;
+        this._tracks[track].setVolume(volume);
     }
 
     public pause() {
@@ -215,6 +217,7 @@ export class Level1Scene extends RenderTargetScene {
 
     private _player?: FirstPersonPlayer;
 
+    private _soundEffects?: SoundEffects;
     private _voiceOver?: VoiceOver;
 
     private _keyBindingsGrid?: Control;
@@ -289,46 +292,56 @@ export class Level1Scene extends RenderTargetScene {
     }
 
     private *_openDoorCoroutine() {
+        this._soundEffects?.play(SoundEffectTrack.Hinge, false, 0.5);
+
         this._doorState = DoorState.Animating;
         const door = this.getTransformNodeByName("physics_compound_door")!;
         door.reIntegrateRotationIntoRotationQuaternion = true;
-        for (let t = 0; t < 100; ++t) {
-            door.rotation.y = 0.01 * 1.1 * -Math.PI / 2;
+        for (let t = 0; t < 120; ++t) {
+            door.rotation.y = 0.008 * 1.1 * -Math.PI / 2;
             yield;
         }
         this._doorState = DoorState.Open;
     }
 
     private *_closeDoorCoroutine() {
+        this._soundEffects?.play(SoundEffectTrack.Hinge, false, 0.5);
+
         this._doorState = DoorState.Animating;
         const door = this.getTransformNodeByName("physics_compound_door")!;
         door.reIntegrateRotationIntoRotationQuaternion = true;
-        for (let t = 0; t < 100; ++t) {
-            door.rotation.y = 0.01 * 1.1 * Math.PI / 2;
+        for (let t = 0; t < 120; ++t) {
+            door.rotation.y = 0.008 * 1.1 * Math.PI / 2;
             yield;
         }
         this._doorState = DoorState.Closed;
     }
 
     private *_openElevatorCoroutine() {
+        this._soundEffects?.play(SoundEffectTrack.Elevator);
+
         this._elevatorState = DoorState.Animating;
+        yield this._delayAsync(1000);
         const leftDoor = this.getMeshByName("physics_box_elevator_door_left")!;
         const rightDoor = this.getMeshByName("physics_box_elevator_door_right")!;
-        for (let t = 0; t < 100; ++t) {
-            leftDoor.position.z -= 0.008;
-            rightDoor.position.z += 0.008;
+        for (let t = 0; t < 150; ++t) {
+            leftDoor.position.z -= 0.005;
+            rightDoor.position.z += 0.005;
             yield;
         }
         this._elevatorState = DoorState.Open;
     }
 
     private *_closeElevatorCoroutine() {
+        this._soundEffects?.play(SoundEffectTrack.Elevator);
+
         this._elevatorState = DoorState.Animating;
+        yield this._delayAsync(1000);
         const leftDoor = this.getMeshByName("physics_box_elevator_door_left")!;
         const rightDoor = this.getMeshByName("physics_box_elevator_door_right")!;
-        for (let t = 0; t < 100; ++t) {
-            leftDoor.position.z += 0.008;
-            rightDoor.position.z -= 0.008;
+        for (let t = 0; t < 150; ++t) {
+            leftDoor.position.z += 0.005;
+            rightDoor.position.z -= 0.005;
             yield;
         }
         this._elevatorState = DoorState.Closed;
@@ -342,7 +355,7 @@ export class Level1Scene extends RenderTargetScene {
             yield;
         }
 
-        for (let idx = 0; idx < 180; ++idx) {
+        for (let idx = 0; idx < 240; ++idx) {
             yield;
         }
 
@@ -436,11 +449,14 @@ export class Level1Scene extends RenderTargetScene {
         }
 
         setButtonClickHandler("resumeButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+
             this._paused = false;
             this.physicsEnabled = true;
             if (this._pauseVoiceOverWhenGamePauses) {
                 this._voiceOver?.resume();
             }
+            this._soundEffects?.resume();
             
             pauseMenu.isVisible = false;
             pauseMenu.isEnabled = false;
@@ -450,6 +466,8 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("settingsButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             mainButtonsStackPanel.isVisible = false;
             mainButtonsStackPanel.isEnabled = false;
             settingsButtonsStackPanel.isVisible = true;
@@ -457,10 +475,14 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("exitButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             this.requestTitleSceneObservable.notifyObservers();
         });
 
         setButtonClickHandler("settingsKeyBindingsButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             keyBindingsWalkButton.textBlock!.text = walkKeyBinding;
             this._keyBindingsInteractButton!.textBlock!.text = interactKeyBinding;
             keyBindingsJumpButton.textBlock!.text = jumpKeyBinding;
@@ -472,6 +494,8 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("settingsBackButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             mainButtonsStackPanel.isVisible = true;
             mainButtonsStackPanel.isEnabled = true;
             settingsButtonsStackPanel.isVisible = false;
@@ -479,6 +503,8 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("keyBindingsApplyButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             walkKeyBinding = keyBindingsWalkButton.textBlock!.text;
             interactKeyBinding = this._keyBindingsInteractButton!.textBlock!.text;
             jumpKeyBinding = keyBindingsJumpButton.textBlock!.text;
@@ -492,11 +518,15 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         keyBindingsWalkButton.onPointerClickObservable.add(() => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             keyBindingPromptModal.isVisible = true;
             keyBindingPromptModal.isEnabled = true;
             
             const observable = this.onKeyboardObservable.add((eventData) => {
                 if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+                    
                     keyBindingsWalkButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
 
                     keyBindingPromptModal.isVisible = false;
@@ -508,11 +538,15 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         this._keyBindingsInteractButton.onPointerClickObservable.add(() => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             keyBindingPromptModal.isVisible = true;
             keyBindingPromptModal.isEnabled = true;
             
             const observable = this.onKeyboardObservable.add((eventData) => {
                 if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+                    
                     this._keyBindingsInteractButton!.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
 
                     keyBindingPromptModal.isVisible = false;
@@ -524,11 +558,15 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         keyBindingsJumpButton.onPointerClickObservable.add(() => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             keyBindingPromptModal.isVisible = true;
             keyBindingPromptModal.isEnabled = true;
             
             const observable = this.onKeyboardObservable.add((eventData) => {
                 if (eventData.type === 2 && "abcdefghijklmnopqrstuvwxyz ".indexOf(eventData.event.key.toLowerCase()) >= 0) {
+                    this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+                    
                     keyBindingsJumpButton.textBlock!.text = eventData.event.key === " " ? "Space" : eventData.event.key.toUpperCase();
 
                     keyBindingPromptModal.isVisible = false;
@@ -540,6 +578,8 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         setButtonClickHandler("keyBindingsCancelButton", () => {
+            this._soundEffects?.play(SoundEffectTrack.Click, false, 0.1);
+            
             this._keyBindingsGrid!.isVisible = false;
             this._keyBindingsGrid!.isEnabled = false;
             settingsButtonsStackPanel.isVisible = true;
@@ -559,6 +599,7 @@ export class Level1Scene extends RenderTargetScene {
                 if (this._pauseVoiceOverWhenGamePauses) {
                     this._voiceOver?.pause();
                 }
+                this._soundEffects?.pause();
                 
                 pauseMenu.isVisible = true;
                 mainButtonsStackPanel.isVisible = true;
@@ -579,7 +620,9 @@ export class Level1Scene extends RenderTargetScene {
     }
 
     private async _initializeSoundEffectsAsync(params: IGameParams) {
+        this._soundEffects = await SoundEffects.CreateAsync(this, params.assetToUrl);
 
+        this._soundEffects.play(SoundEffectTrack.Music, true);
     }
 
     private async _initializeVoiceOverAsync(params: IGameParams) {
@@ -798,7 +841,7 @@ export class Level1Scene extends RenderTargetScene {
         });
 
         // Kick off the sequence.
-        await this._delayAsync(5000);
+        await this._delayAsync(10000);
         this._voiceOver.play(VoiceOverTrack.InvoluntaryFloorInspection);
     }
 
