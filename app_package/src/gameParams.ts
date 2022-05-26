@@ -48,6 +48,14 @@ export enum HdrEnvironment {
     _end
 }
 
+export enum GuiFile {
+    _start = HdrEnvironment._end,
+    Title,
+    Game,
+    Credits,
+    _end
+}
+
 export interface IGameParams {
     canvas: HTMLCanvasElement;
     assetToUrl: Map<number, string>;

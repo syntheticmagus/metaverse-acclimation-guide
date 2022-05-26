@@ -9,7 +9,7 @@ import { Observable } from "@babylonjs/core/Misc/observable";
 import { AmmoJSPlugin } from "@babylonjs/core/Physics/Plugins/ammoJSPlugin";
 import { AdvancedDynamicTexture, Button } from "@babylonjs/gui";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
-import { HdrEnvironment, IGameParams, Model, SoundEffectTrack } from "./gameParams";
+import { GuiFile, HdrEnvironment, IGameParams, Model, SoundEffectTrack } from "./gameParams";
 import { RenderTargetScene } from "./renderTargetScene";
 
 export class TitleScene extends RenderTargetScene {
@@ -68,7 +68,7 @@ export class TitleScene extends RenderTargetScene {
         scene.postProcessRenderPipelineManager.attachCamerasToRenderPipeline("ssao", scene.activeCamera!);
 
         const titleGui = AdvancedDynamicTexture.CreateFullscreenUI("titleGui");
-        await titleGui.parseFromURLAsync("http://localhost:8181/title_gui.json");
+        await titleGui.parseFromURLAsync(params.assetToUrl.get(GuiFile.Title)!);
         
         const mainButtonsStackPanel = titleGui.getControlByName("mainButtonsStackPanel")!;
         const settingsButtonsStackPanel = titleGui.getControlByName("settingsButtonsStackPanel")!;

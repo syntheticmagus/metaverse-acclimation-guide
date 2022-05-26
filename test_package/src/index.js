@@ -1,4 +1,4 @@
-import { runGame, VoiceOverTrack, SoundEffectTrack, Model, HdrEnvironment } from "app_package";
+import { runGame, VoiceOverTrack, SoundEffectTrack, Model, HdrEnvironment, GuiFile } from "app_package";
 
 let assetsHostUrl;
 if (DEV_BUILD) {
@@ -70,7 +70,9 @@ const assetToUrl = new Map([
 
     [HdrEnvironment.MainLevel, `${assetsHostUrl}/environment.env`],
 
-    // TODO: GUI, etc.
+    [GuiFile.Title, `${assetsHostUrl}/title_gui.json`],
+    [GuiFile.Game, `${assetsHostUrl}/game_gui.json`],
+    [GuiFile.Credits, `${assetsHostUrl}/credits_gui.json`]
 ]);
 
 setTimeout(() => {

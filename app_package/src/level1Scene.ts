@@ -12,7 +12,7 @@ import { FirstPersonPlayer } from "@syntheticmagus/first-person-player/lib/first
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib/physicsPostLoader";
 import { FiniteStateMachine } from "./finiteStateMachine";
 import { RenderTargetScene } from "./renderTargetScene";
-import { VoiceOverTrack, SoundEffectTrack, IGameParams, Model, HdrEnvironment } from "./gameParams";
+import { VoiceOverTrack, SoundEffectTrack, IGameParams, Model, HdrEnvironment, GuiFile } from "./gameParams";
 import { sceneUboDeclaration } from "@babylonjs/core/Shaders/ShadersInclude/sceneUboDeclaration";
 
 class TriggerVolume {
@@ -405,9 +405,9 @@ export class Level1Scene extends RenderTargetScene {
         this._player.jumpForce = 0;
     }
 
-    private async _initializeGameGuiAsync() {
+    private async _initializeGameGuiAsync(params: IGameParams) {
         const gameGui = AdvancedDynamicTexture.CreateFullscreenUI("gameGui");
-        await gameGui.parseFromURLAsync("http://localhost:8181/game_gui.json");
+        await gameGui.parseFromURLAsync(params.assetToUrl.get(GuiFile.Game)!);
         
         const pauseMenu = gameGui.getControlByName("pauseMenu")!;
         const mainButtonsStackPanel = gameGui.getControlByName("mainButtonsStackPanel")!;
@@ -935,7 +935,7 @@ export class Level1Scene extends RenderTargetScene {
             }
         }); */
 
-        await scene._initializeGameGuiAsync();
+        await scene._initializeGameGuiAsync(params);
 
         scene._initializeSoundEffectsAsync(params);
         scene._initializeVoiceOverAsync(params);

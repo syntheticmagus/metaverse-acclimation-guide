@@ -1,7 +1,7 @@
 import { Observable, Engine, AmmoJSPlugin, Sound, SceneLoader, CubeTexture, TransformNode, Quaternion, TargetCamera, Vector3, SSAO2RenderingPipeline, Color3, Color4 } from "@babylonjs/core";
 import { AdvancedDynamicTexture, Button, StackPanel } from "@babylonjs/gui";
 import { PhysicsPostLoader } from "@syntheticmagus/physics-post-loader/lib";
-import { IGameParams, SoundEffectTrack, Model, HdrEnvironment } from "./gameParams";
+import { IGameParams, SoundEffectTrack, Model, HdrEnvironment, GuiFile } from "./gameParams";
 import { RenderTargetScene } from "./renderTargetScene";
 
 export class CreditsScene extends RenderTargetScene {
@@ -28,7 +28,7 @@ export class CreditsScene extends RenderTargetScene {
         clickSound.setVolume(0.1);
 
         const creditsGui = AdvancedDynamicTexture.CreateFullscreenUI("creditsGui");
-        await creditsGui.parseFromURLAsync("http://localhost:8181/credits_gui.json");
+        await creditsGui.parseFromURLAsync(params.assetToUrl.get(GuiFile.Credits)!);
         
         const stackPanel = creditsGui.getControlByName("creditsStackPanel")! as StackPanel;
         scene.onBeforeRenderObservable.runCoroutineAsync(function *() {
