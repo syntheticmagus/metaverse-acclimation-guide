@@ -1,4 +1,4 @@
-import { AbstractMesh, CubeTexture, Logger, Matrix, Ray, Sound, SSAO2RenderingPipeline, Tools, Vector3 } from "@babylonjs/core";
+import { AbstractMesh, CubeTexture, Logger, Matrix, Ray, Sound, SSAO2RenderingPipeline, Tools, Vector2, Vector3 } from "@babylonjs/core";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import { Observable } from "@babylonjs/core/Misc/observable";
@@ -365,6 +365,25 @@ export class Level1Scene extends RenderTargetScene {
         }
     }
 
+    private *_footstepsCoroutine() {
+        const stride = 0.65;
+        let distance = 0;
+        const priorPosition = new Vector2(this.activeCamera!.globalPosition.x, this.activeCamera!.globalPosition.z);
+        const currentPosition = priorPosition.clone();
+        while (true) {
+            currentPosition.copyFromFloats(this.activeCamera!.globalPosition.x, this.activeCamera!.globalPosition.z);
+            distance += Vector2.Distance(priorPosition, currentPosition);
+            if (distance > stride) {
+                distance = 0;
+                this._soundEffects?.play(SoundEffectTrack.Footstep);
+            }
+            distance *= 0.95;
+            priorPosition.copyFrom(currentPosition);
+
+            yield;
+        }
+    }
+
     private _loadHdrLighting(params: IGameParams) {
         const environmentTexture = CubeTexture.CreateFromPrefilteredData(params.assetToUrl.get(HdrEnvironment.MainLevel)!, this);
         this.environmentTexture = environmentTexture;
@@ -623,6 +642,8 @@ export class Level1Scene extends RenderTargetScene {
         this._soundEffects = await SoundEffects.CreateAsync(this, params.assetToUrl);
 
         this._soundEffects.play(SoundEffectTrack.Music, true);
+
+        this._updateObservable.runCoroutineAsync(this._footstepsCoroutine());
     }
 
     private async _initializeVoiceOverAsync(params: IGameParams) {
